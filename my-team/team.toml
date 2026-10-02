@@ -1,0 +1,22 @@
+# Who this team is.
+#
+# The marker reads this file, and it is what puts your name next to your team
+# on the leaderboard. Fill it in now — a submission without it is not marked.
+#
+# Check it at any time with:   START.cmd check      (or ./start.sh check)
+
+[team]
+# Shown on the leaderboard. 1-40 characters: letters, digits, spaces . _ ' & ( ) + -
+name = "Athalia Mamba"
+
+# Bump this when you change your tactics, so you can tell your runs apart.
+version = "80"
+
+# Optional, up to 500 characters. A sentence on what your team tries to do.
+# notes = "Holds possession and looks for a clear pass before shooting."
+
+
+# One [[members]] block per person. Copy the whole block for a partner.
+[[members]]
+name = "Athalia Mamba"
+student_number = "2826102"
