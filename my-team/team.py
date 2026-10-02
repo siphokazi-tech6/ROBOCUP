@@ -1,7 +1,7 @@
-"""Athalia Mamba v81 - race-model football.
+"""Athalia Mamba v82 - race-model football.
 
 Every kick the man on the ball could make (shots at seven points of the goal
-mouth, and passes or touches to himself in 36 directions at four speeds) is
+mouth, and passes or touches to himself in 36 directions at five speeds) is
 rolled forward under the engine's own ball physics: friction 0.985 a tick,
 walls returning 75%. Every player on the pitch is then raced to that ball with
 the engine's own movement model (v' = 0.9 v + a, capped at 8). Our own players
@@ -81,6 +81,8 @@ KO_R = 10.9
 TDEL = int(P.get('tdel', 0))
 ICD = int(P.get('icd', 1))
 BEHIND = P.get('behind', 0.0)
+GYS = tuple(P.get('gys', (-6.2, -4.6, -2.3, 0.0, 2.3, 4.6, 6.2)))
+SPEEDS = tuple(None if s is None or s < 0 else s for s in P.get('speeds', (None, 15.0, 10.0, 8.5, 6.5)))
 
 
 def _mv(dx, dy, thr=1.0):
@@ -141,7 +143,7 @@ BUDGET = 0.008
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "81"
+    version = "82"
 
     def __init__(self):
         self.reset(0)
@@ -472,7 +474,7 @@ class MyTeam(TeamController):
         # shots
         gdx = HW - bx
         if gdx < 40.0:
-            for gy in (-5.6, -4.0, -2.0, 0.0, 2.0, 4.0, 5.6):
+            for gy in GYS:
                 dx = HW - bx
                 dy = gy - by
                 d = sqrt(dx * dx + dy * dy)
@@ -495,7 +497,7 @@ class MyTeam(TeamController):
                 break
             if self._through_body(px, py, bx, by, ux, uy):
                 continue
-            for want in (None, 15.0, 10.0, 6.5):
+            for want in SPEEDS:
                 k_ = _strike(bvx, bvy, ux, uy, want)
                 if k_ is None:
                     continue
