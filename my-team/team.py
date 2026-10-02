@@ -1,4 +1,4 @@
-"""Athalia Mamba v80 - race-model football.
+"""Athalia Mamba v81 - race-model football.
 
 Every kick the man on the ball could make (shots at seven points of the goal
 mouth, and passes or touches to himself in 36 directions at four speeds) is
@@ -11,13 +11,15 @@ forward and with the most time to spare, is the one played. A shot is taken
 only when no opponent, the keeper included, can reach the ball before it
 crosses the line.
 
-Off the ball: the player who reaches a loose ball first goes to meet it. When
-they have it, the player who can get goal-side of the ball fastest presses it.
-One man always stays between the ball and our goal, opponents near our goal are
-marked goal-side in order of danger, and the keeper narrows the angle on the
-line from the ball to the middle of the goal and goes for the earliest point
-of any shot he can reach. On their kickoff we stand in the passing lanes to
-their forwards and steer round the centre circle, so we never give a foul.
+Off the ball: the player who can reach a loose ball first, counting from when
+his kick cooldown ends, goes to meet it, so a dribbler runs alongside his ball
+instead of into it. When they have it, the player who can get goal-side of the
+ball fastest presses it. One man always stays between the ball and our goal,
+opponents near our goal are marked goal-side in order of danger, and the keeper
+narrows the angle on the line from the ball to the middle of the goal and goes
+for the earliest point of any shot he can reach. On their kickoff we stand in
+the passing lanes to their forwards and steer round the centre circle, so we
+never give away a foul.
 
 The on-ball search has an 8 ms budget and looks at forward kicks first.
 """
@@ -77,6 +79,8 @@ ODEL = int(P.get('odel', 3))
 ORAD = P.get('orad', 0.5)
 KO_R = 10.9
 TDEL = int(P.get('tdel', 0))
+ICD = int(P.get('icd', 1))
+BEHIND = P.get('behind', 0.0)
 
 
 def _mv(dx, dy, thr=1.0):
@@ -137,7 +141,7 @@ BUDGET = 0.008
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "80"
+    version = "81"
 
     def __init__(self):
         self.reset(0)
@@ -225,6 +229,15 @@ class MyTeam(TeamController):
                 if n > NT:
                     n = NT
                 tx, ty = traj[n]
+                if BEHIND > 0.0:
+                    # come onto it from behind its line, not through it
+                    if n < NT:
+                        dvx = traj[n + 1][0] - tx
+                        dvy = traj[n + 1][1] - ty
+                        dv = sqrt(dvx * dvx + dvy * dvy)
+                        if dv > 0.05:
+                            tx -= dvx / dv * BEHIND
+                            ty -= dvy / dv * BEHIND
             pl[chaser] = self._run_to(us[chaser], tx, ty, ball_target=True)
             done.add(chaser)
 
@@ -272,7 +285,8 @@ class MyTeam(TeamController):
         """First tick n at which the player can be within kick range of the ball."""
         px, py, vx, vy, cd = p
         r = KR
-        for n in range(0, NT + 1):
+        n0 = cd if (ICD and cd) else 0
+        for n in range(n0, NT + 1):
             tx, ty = traj[n]
             c = C[n]
             dx = tx - px - vx * c
