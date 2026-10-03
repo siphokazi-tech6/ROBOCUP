@@ -1,4 +1,4 @@
-"""Athalia Mamba v93 - race-model football.
+"""Athalia Mamba v91 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
@@ -211,7 +211,7 @@ DEEPX = P.get('deepx', -35.0)
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "93"
+    version = "91"
 
     def __init__(self):
         self.reset(0)
@@ -1134,40 +1134,23 @@ class MyTeam(TeamController):
         if self.ko_t0 is None:
             self.ko_t0 = t
         el = t - self.ko_t0
-        # forwards up behind their kickoff line: zone defences leave the
-        # space between their back line and keeper open
-        spots = [(-48.0, 0.0), (-25.0, 0.0), (-6.0, 0.0), (35.0, -14.0), (35.0, 14.0)]
-        # who goes where: the league sets our starting places itself (mirrored
-        # away from home), so take the spots by distance, not by shirt
-        if self.ko_t0 == t or getattr(self, 'ko_who', None) is None:
-            us = self.us
-            left = [1, 2, 3, 4]
-            who = {0: 0}
-            for k in (3, 4, 2, 1):
-                tx, ty = (-1.5, 0.0) if k == 2 else spots[k]
-                i = min(left, key=lambda i: (us[i][0] - tx) ** 2 + (us[i][1] - ty) ** 2)
-                left.remove(i)
-                who[k] = i
-            self.ko_who = who
-        who = self.ko_who
-        for k in range(5):
-            i = who[k]
-            tx, ty = spots[k]
-            if k == 2:
+        spots = [(-48.0, 0.0), (-25.0, 0.0), (-6.0, 0.0), (8.0, -18.0), (8.0, 18.0)]
+        for i in range(5):
+            tx, ty = spots[i]
+            if i == 2:
                 # walk to the ball, take it near the end
                 tx, ty = -1.5, 0.0
             pl[i] = self._run_to(self.us[i], tx, ty)
-        kick_i = who[2]
         if el >= 50:
             # strike from the spot using the standard evaluation
-            p = self.us[kick_i]
+            p = self.us[2]
             dx = -p[0]
             dy = -p[1]
             if dx * dx + dy * dy <= KR * KR and p[4] == 0:
                 self.traj = self._traj(0.0, 0.0, 0.0, 0.0)
-                act = self._on_ball(kick_i, obs)
+                act = self._on_ball(2, obs)
                 if act is not None:
-                    pl[kick_i] = act
+                    pl[2] = act
             else:
-                pl[kick_i] = self._run_to(p, 0.0, 0.0, True)
+                pl[2] = self._run_to(p, 0.0, 0.0, True)
         return ta
