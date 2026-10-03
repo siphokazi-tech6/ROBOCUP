@@ -1,17 +1,19 @@
-"""Athalia Mamba v86 - race-model football.
+"""Athalia Mamba v87 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
 points of the goal mouth, and passes or touches to himself in the 16 most
 forward directions on a 10-degree ring (straight ahead out to about 75 degrees
-either side) at five speeds. Every player on the pitch is raced to each ball
-with the engine's own movement model (v' = 0.9 v + a, capped at 8). Our own
-players get a three-tick reaction delay and half a unit less reach, so we only
-count passes we really collect. The kick whose ball we win first, furthest
-forward and with the most time to spare, is the one played; a ball won in the
-attacking third earns extra credit for how open a first-time shot from there
-would be against a keeper on his line. A shot is taken only when no opponent,
-the keeper included, can reach the ball before it crosses the line.
+either side) at five speeds. The keeper, anyone in our last 15 units, and
+anyone with nothing playable forward look round the whole ring instead. Every
+player on the pitch is raced to each ball with the engine's own movement model
+(v' = 0.9 v + a, capped at 8). Our own players get a three-tick reaction delay
+and half a unit less reach, so we only count passes we really collect. The
+kick whose ball we win first, furthest forward and with the most time to
+spare, is the one played; a ball won in the attacking third earns extra credit
+for how open a first-time shot from there would be against a keeper on his
+line. A shot is taken only when no opponent, the keeper included, can reach
+the ball before it crosses the line.
 
 Off the ball: the player who can reach a loose ball first, counting from when
 his kick cooldown ends, goes to meet it, so a dribbler runs alongside his ball
@@ -182,12 +184,15 @@ if 'dirset' in P:
     CANDS = _cands(P['dirset'])
 else:
     CANDS = [(d, SPEEDS) for d in DIRS]
+ALLC = CANDS
 CANDS = CANDS[:int(P.get('ndirs', 16))]
+CREST = ALLC[len(CANDS):]
+DEEPX = P.get('deepx', -35.0)
 
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "86"
+    version = "87"
 
     def __init__(self):
         self.reset(0)
@@ -763,7 +768,12 @@ class MyTeam(TeamController):
                         bestv = v
                         best = (kk, ux, uy, 'play')
         else:
-            for (ux, uy), sps in CANDS:
+            cands = CANDS
+            if k == 0 or bx < DEEPX:
+                # at the back every direction counts: a clearance may have
+                # to go sideways, or back across a fast ball
+                cands = ALLC
+            for (ux, uy), sps in cands:
                 if _clock() - t0 > BUDGET:
                     break
                 if self._through_body(px, py, bx, by, ux, uy):
@@ -772,6 +782,17 @@ class MyTeam(TeamController):
                 if kk is not None and v > bestv:
                     bestv = v
                     best = (kk, ux, uy, 'play')
+            if best is None and cands is CANDS:
+                # nothing playable forward: look at the rest of the ring
+                for (ux, uy), sps in CREST:
+                    if _clock() - t0 > BUDGET:
+                        break
+                    if self._through_body(px, py, bx, by, ux, uy):
+                        continue
+                    v, kk = self._evaldir(k, bx, by, bvx, bvy, ux, uy, sps, ours, theirs)
+                    if kk is not None and v > bestv:
+                        bestv = v
+                        best = (kk, ux, uy, 'play')
         if best is None:
             return None
         k_, ux, uy, kind = best
