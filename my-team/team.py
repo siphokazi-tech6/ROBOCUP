@@ -1,11 +1,10 @@
-"""Athalia Mamba v84 - race-model football.
+"""Athalia Mamba v85 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
-points of the goal mouth, and passes or touches to himself in every direction,
-first on a 20-degree ring at two speeds, then at five speeds in 5-degree steps
-around the three best directions. Every player on the pitch is raced to each
-ball with the engine's own movement model (v' = 0.9 v + a, capped at 8). Our
+points of the goal mouth, and passes or touches to himself in 36 directions at
+five speeds, the most forward first. Every player on the pitch is raced to
+each ball with the engine's own movement model (v' = 0.9 v + a, capped at 8). Our
 own players get a three-tick reaction delay and half a unit less reach, so we
 only count passes we really collect. The kick whose ball we win first,
 furthest forward and with the most time to spare, is the one played; a ball
@@ -23,8 +22,7 @@ for the earliest point of any shot he can reach. On their kickoff we stand in
 the passing lanes to their forwards and steer round the centre circle, so we
 never give away a foul.
 
-The search covers every direction on any machine; a wall-clock guard of 8 ms
-stops the refinement early on a slow one, well inside the 20 ms deadline.
+The pass search has an 8 ms wall-clock budget, well inside the 20 ms deadline.
 """
 
 from math import sqrt, atan2, cos, sin
@@ -93,7 +91,7 @@ SQX = P['sqx']
 BEHIND = P.get('behind', 0.0)
 GYS = tuple(P.get('gys', (-6.2, -4.6, -2.3, 0.0, 2.3, 4.6, 6.2)))
 SPEEDS = tuple(None if s is None or s < 0 else s for s in P.get('speeds', (None, 15.0, 10.0, 8.5, 6.5)))
-TWO = int(P.get('two', 1))
+TWO = int(P.get('two', 0))
 TOPK = int(P.get('topk', 3))
 _cs = int(P.get('cstep', 20))
 COARSE = [(cos(a * 0.017453292519943295), sin(a * 0.017453292519943295)) for a in range(-180, 180, _cs)]
@@ -179,7 +177,7 @@ else:
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "84"
+    version = "85"
 
     def __init__(self):
         self.reset(0)
