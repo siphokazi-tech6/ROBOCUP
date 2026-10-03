@@ -1,4 +1,4 @@
-"""Athalia Mamba v82 - race-model football.
+"""Athalia Mamba v83 - race-model football.
 
 Every kick the man on the ball could make (shots at seven points of the goal
 mouth, and passes or touches to himself in 36 directions at five speeds) is
@@ -7,7 +7,9 @@ walls returning 75%. Every player on the pitch is then raced to that ball with
 the engine's own movement model (v' = 0.9 v + a, capped at 8). Our own players
 are given a three-tick reaction delay and half a unit less reach, so we only
 count passes we really collect. The kick whose ball we win first, furthest
-forward and with the most time to spare, is the one played. A shot is taken
+forward and with the most time to spare, is the one played. A ball won in the
+attacking third earns extra credit for how open a first-time shot from there
+would be against a keeper on his line. A shot is taken
 only when no opponent, the keeper included, can reach the ball before it
 crosses the line.
 
@@ -21,7 +23,7 @@ for the earliest point of any shot he can reach. On their kickoff we stand in
 the passing lanes to their forwards and steer round the centre circle, so we
 never give away a foul.
 
-The on-ball search has an 8 ms budget and looks at forward kicks first.
+The on-ball search has a 3 ms budget and looks at forward kicks first.
 """
 
 from math import sqrt, atan2, cos, sin
@@ -74,12 +76,15 @@ HOLD = PlayerAction()
 P = dict(px=0.03, pz=0.04, py=0.02, mw=0.12, tw=0.004, m0=1.0, m1=0.0, cpen=0.6, drib=0.02,
          lose=1.0, dang=3.0, dead=0.5, shot_w=10.0,
          mk_g=1.8, mk_b=0.8, mk_zone=30.0, ball_far=30.0,
-         fwd_dx=18.0, fwd_y=12.0, space=0, sp_step=6.0, sp_lane=0.5, sp_x=0.1)
+         fwd_dx=18.0, fwd_y=12.0, space=0, sp_step=6.0, sp_lane=0.5, sp_x=0.1,
+         sq=2.0, sqx=15.0, sqd=2.5)
 ODEL = int(P.get('odel', 3))
 ORAD = P.get('orad', 0.5)
 KO_R = 10.9
 TDEL = int(P.get('tdel', 0))
 ICD = int(P.get('icd', 1))
+SQ = P['sq']
+SQX = P['sqx']
 BEHIND = P.get('behind', 0.0)
 GYS = tuple(P.get('gys', (-6.2, -4.6, -2.3, 0.0, 2.3, 4.6, 6.2)))
 SPEEDS = tuple(None if s is None or s < 0 else s for s in P.get('speeds', (None, 15.0, 10.0, 8.5, 6.5)))
@@ -138,12 +143,12 @@ def _dirs(step):
 
 # most forward first, so a cut-short search has looked at the useful ones
 DIRS = sorted(_dirs(10), key=lambda d: -d[0])
-BUDGET = 0.008
+BUDGET = 0.003
 
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "82"
+    version = "83"
 
     def __init__(self):
         self.reset(0)
@@ -458,6 +463,39 @@ class MyTeam(TeamController):
         return v
 
     @staticmethod
+    def _shotq(x, y):
+        """How open a first-time shot from (x, y) would be against a keeper
+        standing on the line from there to the middle of his goal: the best
+        spare reach, in units, over three aims (negative = he covers it)."""
+        gx = HW - x
+        d0 = sqrt(gx * gx + y * y) or 1.0
+        dep = P['sqd']
+        kx = HW - gx / d0 * dep
+        ky = y / d0 * dep
+        best = -9.0
+        for gy in (-5.6, 0.0, 5.6):
+            dx = HW - x
+            dy = gy - y
+            d = sqrt(dx * dx + dy * dy) or 1.0
+            ux = dx / d
+            uy = dy / d
+            rx = kx - x
+            ry = ky - y
+            a = rx * ux + ry * uy
+            if a < 0.0:
+                a = 0.0
+            pd = rx * uy - ry * ux
+            if pd < 0.0:
+                pd = -pd
+            n = int(a / 27.0 * HZ) + 1
+            if n > NT:
+                n = NT
+            m = pd - R0[n] - KR
+            if m > best:
+                best = m
+        return best
+
+    @staticmethod
     def _danger(x, y):
         ay = y if y > 0 else -y
         d = sqrt((x + HW) ** 2 + ay * ay)
@@ -511,6 +549,13 @@ class MyTeam(TeamController):
                 elif ot is not None and (tt is None or ot < tt):
                     m = (tt - ot) if tt is not None else 8
                     v = self._posval(ox, oy) + P['mw'] * min(m, 8) - P['tw'] * ot
+                    if SQ and ox > SQX:
+                        q = self._shotq(ox, oy)
+                        if q > 3.0:
+                            q = 3.0
+                        elif q < -3.0:
+                            q = -3.0
+                        v += SQ * q / 3.0
                     need = P['m0'] + P['m1'] * ot
                     if m <= need:
                         v -= P['cpen'] * (1.0 + need - m) * 0.5
