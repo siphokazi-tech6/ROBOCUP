@@ -1,17 +1,17 @@
-"""Athalia Mamba v83 - race-model football.
+"""Athalia Mamba v84 - race-model football.
 
-Every kick the man on the ball could make (shots at seven points of the goal
-mouth, and passes or touches to himself in 36 directions at five speeds) is
-rolled forward under the engine's own ball physics: friction 0.985 a tick,
-walls returning 75%. Every player on the pitch is then raced to that ball with
-the engine's own movement model (v' = 0.9 v + a, capped at 8). Our own players
-are given a three-tick reaction delay and half a unit less reach, so we only
-count passes we really collect. The kick whose ball we win first, furthest
-forward and with the most time to spare, is the one played. A ball won in the
-attacking third earns extra credit for how open a first-time shot from there
-would be against a keeper on his line. A shot is taken
-only when no opponent, the keeper included, can reach the ball before it
-crosses the line.
+Every kick the man on the ball could make is rolled forward under the engine's
+own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
+points of the goal mouth, and passes or touches to himself in every direction,
+first on a 20-degree ring at two speeds, then at five speeds in 5-degree steps
+around the three best directions. Every player on the pitch is raced to each
+ball with the engine's own movement model (v' = 0.9 v + a, capped at 8). Our
+own players get a three-tick reaction delay and half a unit less reach, so we
+only count passes we really collect. The kick whose ball we win first,
+furthest forward and with the most time to spare, is the one played; a ball
+won in the attacking third earns extra credit for how open a first-time shot
+from there would be against a keeper on his line. A shot is taken only when no
+opponent, the keeper included, can reach the ball before it crosses the line.
 
 Off the ball: the player who can reach a loose ball first, counting from when
 his kick cooldown ends, goes to meet it, so a dribbler runs alongside his ball
@@ -23,7 +23,8 @@ for the earliest point of any shot he can reach. On their kickoff we stand in
 the passing lanes to their forwards and steer round the centre circle, so we
 never give away a foul.
 
-The on-ball search has a 3 ms budget and looks at forward kicks first.
+The search covers every direction on any machine; a wall-clock guard of 8 ms
+stops the refinement early on a slow one, well inside the 20 ms deadline.
 """
 
 from math import sqrt, atan2, cos, sin
@@ -83,11 +84,23 @@ ORAD = P.get('orad', 0.5)
 KO_R = 10.9
 TDEL = int(P.get('tdel', 0))
 ICD = int(P.get('icd', 1))
+SKIP = int(P.get('skip', 1))
+ISTEP = int(P.get('istep', 1))
+KRC = KR * KR
+PRUNE = int(P.get('prune', 1))
 SQ = P['sq']
 SQX = P['sqx']
 BEHIND = P.get('behind', 0.0)
 GYS = tuple(P.get('gys', (-6.2, -4.6, -2.3, 0.0, 2.3, 4.6, 6.2)))
 SPEEDS = tuple(None if s is None or s < 0 else s for s in P.get('speeds', (None, 15.0, 10.0, 8.5, 6.5)))
+TWO = int(P.get('two', 1))
+TOPK = int(P.get('topk', 3))
+_cs = int(P.get('cstep', 20))
+COARSE = [(cos(a * 0.017453292519943295), sin(a * 0.017453292519943295)) for a in range(-180, 180, _cs)]
+CSP = tuple(None if v < 0 else v for v in P.get('csp', [-1, 10]))
+RSP = tuple(v for v in SPEEDS if v not in CSP)
+_rs = P.get('rstep', 5)
+REFINE = [(cos(d * 0.017453292519943295), sin(d * 0.017453292519943295)) for d in (0.0, -_rs, _rs, -2 * _rs, 2 * _rs)]
 
 
 def _mv(dx, dy, thr=1.0):
@@ -142,13 +155,31 @@ def _dirs(step):
 
 
 # most forward first, so a cut-short search has looked at the useful ones
-DIRS = sorted(_dirs(10), key=lambda d: -d[0])
-BUDGET = 0.003
+DIRS = sorted(_dirs(int(P.get('dstep', 10))), key=lambda d: -d[0])
+BUDGET = P.get('budget', 0.008)
+
+
+def _cands(spec):
+    out = {}
+    for lo, hi, step, sps in spec:
+        a = lo
+        while a <= hi + 1e-9:
+            r = a * 0.017453292519943295
+            key = round(((a + 180) % 360) - 180, 3)
+            out[key] = ((cos(r), sin(r)), tuple(None if v is None or v < 0 else v for v in sps))
+            a += step
+    return sorted(out.values(), key=lambda c: -c[0][0])
+
+
+if 'dirset' in P:
+    CANDS = _cands(P['dirset'])
+else:
+    CANDS = [(d, SPEEDS) for d in DIRS]
 
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "83"
+    version = "84"
 
     def __init__(self):
         self.reset(0)
@@ -156,16 +187,48 @@ class MyTeam(TeamController):
     def reset(self, seed):
         self.ko_t0 = None
         self.last_t = -1
+        self.tk = 0
+        self.full_t = -99
+        self.cache = None
 
     def initial_formation(self, f):
         return [(-48.0, 0.0), (-30.0, -8.0), (-30.0, 8.0), (-11.0, -14.0), (-11.0, 14.0)]
 
     # ------------------------------------------------------------------ act
     def act(self, obs):
+        t = self.tk + 1
+        self.tk = t
+        ca = self.cache
+        if ca is not None and t - self.full_t < SKIP and not obs.events:
+            # nothing has been kicked since the last plan: keep it, unless one
+            # of ours can play the ball right now
+            ball = obs.ball
+            bx, by = ball.position
+            if bx or by:
+                for p in obs.my_players:
+                    if not p.kick_cooldown_ticks:
+                        x, y = p.position
+                        dx = bx - x
+                        dy = by - y
+                        if dx * dx + dy * dy <= KRC:
+                            break
+                else:
+                    return ca
         try:
-            return self._act(obs)
+            ta = self._act(obs)
         except Exception:
-            return TeamAction({i: HOLD for i in range(5)})
+            ta = TeamAction({i: HOLD for i in range(5)})
+        self.full_t = t
+        # the plan to repeat, with any kick taken out of it
+        pl = ta.players
+        rep = None
+        for i, a in pl.items():
+            if a.kick_direction is not None:
+                if rep is None:
+                    rep = dict(pl)
+                rep[i] = PlayerAction(movement=a.movement)
+        self.cache = ta if rep is None else TeamAction(rep)
+        return ta
 
     def _act(self, obs):
         ta = TeamAction()
@@ -293,6 +356,28 @@ class MyTeam(TeamController):
         px, py, vx, vy, cd = p
         r = KR
         n0 = cd if (ICD and cd) else 0
+        if ISTEP > 1:
+            # coarse pass, then the exact first tick just before the hit
+            n = n0
+            while n <= NT:
+                tx, ty = traj[n]
+                c = C[n]
+                dx = tx - px - vx * c
+                dy = ty - py - vy * c
+                rr = R0[n] + r
+                if dx * dx + dy * dy <= rr * rr:
+                    ex = tx - px
+                    ey = ty - py
+                    lim = 0.4 * n + r
+                    if ex * ex + ey * ey <= lim * lim:
+                        break
+                n += ISTEP
+            else:
+                return NT + 5
+            lo = n - ISTEP + 1
+            if lo < n0:
+                lo = n0
+            n0 = lo
         for n in range(n0, NT + 1):
             tx, ty = traj[n]
             c = C[n]
@@ -378,49 +463,104 @@ class MyTeam(TeamController):
         theirs = [(p[0], p[1], p[2], p[3], 0) for p in self.th]
         return ours, theirs
 
-    def _rollout(self, x, y, vx, vy, ours, theirs, kicker):
+    def _schedule(self, bx, by, ux, uy, ours, theirs):
+        """For a kick along u: the first tick each player could possibly be in
+        range of the ball, while it stays on that line (they are too far off
+        it before then). Ours in id order, theirs in any order."""
+        r = KR
+        so = []
+        for j, (px, py, pvx, pvy, ready) in enumerate(ours):
+            pd = (px - bx) * uy - (py - by) * ux
+            if pd < 0.0:
+                pd = -pd
+            m = pd - r + ORAD
+            n = ODEL + int(m / 0.4) if m > 0.0 else 0
+            if n < ready:
+                n = ready
+            so.append((n, j))
+        so.sort()
+        st = []
+        for j, (px, py, pvx, pvy, ready) in enumerate(theirs):
+            pd = (px - bx) * uy - (py - by) * ux
+            if pd < 0.0:
+                pd = -pd
+            m = pd - r
+            n = TDEL + int(m / 0.4) if m > 0.0 else 0
+            st.append((n, j))
+        st.sort()
+        return so, st
+
+    def _rollout(self, x, y, vx, vy, ours, theirs, kicker, sched=None):
         """Roll the ball; return (goal, our_tick, our_x, our_y, our_id, their_tick, their_x, their_y)."""
         ot = None
         tt = None
         ox = oy = tx_ = ty_ = 0.0
         oid = -1
-        stop = NT
         r = KR
+        if sched is None:
+            aours = list(range(len(ours)))
+            athem = list(theirs)
+            so = st = ()
+        else:
+            so, st = sched
+            aours = []
+            athem = []
+        io = 0
+        it = 0
+        nso = len(so)
+        nst = len(st)
+        flat = True
         for n in range(1, NT + 1):
             x += vx * DT
             y += vy * DT
             if y > BYM:
                 y = 2 * BYM - y
                 vy = -0.75 * vy
+                flat = False
             elif y < -BYM:
                 y = -2 * BYM - y
                 vy = -0.75 * vy
+                flat = False
             if x > BXM:
                 if -GH + 0.3 < y < GH - 0.3 and tt is None:
                     return (1, ot, ox, oy, oid, tt, tx_, ty_)
                 x = 2 * BXM - x
                 vx = -0.75 * vx
+                flat = False
             elif x < -BXM:
                 if -GH < y < GH and ot is None:
                     return (-1, ot, ox, oy, oid, tt, tx_, ty_)
                 x = -2 * BXM - x
                 vx = -0.75 * vx
+                flat = False
             vx *= FR
             vy *= FR
+            if io < nso:
+                added = False
+                while io < nso and (so[io][0] <= n or not flat):
+                    aours.append(so[io][1])
+                    io += 1
+                    added = True
+                if added:
+                    aours.sort()
+            while it < nst and (st[it][0] <= n or not flat):
+                athem.append(theirs[st[it][1]])
+                it += 1
             nt = n - TDEL if n > TDEL else 0
             c = C[nt]
             rr = R0[nt] + r
             rr *= rr
             lim = 0.4 * nt + r
             lim *= lim
-            if ot is None:
+            if ot is None and aours:
                 no = n - ODEL if n > ODEL else 0
                 co = C[no]
                 ro = R0[no] + r - ORAD
                 ro *= ro
                 lo = 0.4 * no + r - ORAD
                 lo *= lo
-                for j, (px, py, pvx, pvy, ready) in enumerate(ours):
+                for j in aours:
+                    px, py, pvx, pvy, ready = ours[j]
                     if n < ready:
                         continue
                     dx = x - px - pvx * co
@@ -435,7 +575,7 @@ class MyTeam(TeamController):
                             oid = j
                             break
             if tt is None:
-                for (px, py, pvx, pvy, ready) in theirs:
+                for (px, py, pvx, pvy, ready) in athem:
                     dx = x - px - pvx * c
                     dy = y - py - pvy * c
                     if dx * dx + dy * dy <= rr:
@@ -501,6 +641,51 @@ class MyTeam(TeamController):
         d = sqrt((x + HW) ** 2 + ay * ay)
         return P['dang'] * max(0.0, 1.0 - d / 45.0)
 
+    def _evaldir(self, k, bx, by, bvx, bvy, ux, uy, sps, ours, theirs):
+        """Best value of a kick along u over the given speeds: (value, kick)."""
+        bv = -1e9
+        bk = None
+        sch = self._schedule(bx, by, ux, uy, ours, theirs) if PRUNE else None
+        for want in sps:
+            k_ = _strike(bvx, bvy, ux, uy, want)
+            if k_ is None:
+                continue
+            sp = k_[2]
+            res = self._rollout(bx, by, ux * sp, uy * sp, ours, theirs, k, sch)
+            goal, ot, ox, oy, oid, tt, tx_, ty_ = res
+            if goal == 1:
+                v = 9.0
+            elif goal == -1:
+                v = -50.0
+            elif ot is not None and (tt is None or ot < tt):
+                m = (tt - ot) if tt is not None else 8
+                v = self._posval(ox, oy) + P['mw'] * min(m, 8) - P['tw'] * ot
+                if SQ and ox > SQX:
+                    q = self._shotq(ox, oy)
+                    if q > 3.0:
+                        q = 3.0
+                    elif q < -3.0:
+                        q = -3.0
+                    v += SQ * q / 3.0
+                need = P['m0'] + P['m1'] * ot
+                if m <= need:
+                    v -= P['cpen'] * (1.0 + need - m) * 0.5
+                if oid == k:
+                    v += P['drib']
+            elif tt is not None and (ot is None or tt < ot):
+                v = -P['lose'] - self._danger(tx_, ty_) + 0.01 * tx_
+            else:
+                # dead heat / nobody
+                if ot is None:
+                    x_, y_ = bx, by
+                else:
+                    x_, y_ = ox, oy
+                v = -P['dead'] + 0.5 * self._posval(x_, y_) - 0.5 * self._danger(x_, y_)
+            if v > bv:
+                bv = v
+                bk = k_
+        return bv, bk
+
     def _on_ball(self, k, obs):
         bx, by = obs.ball.position
         bvx, bvy = obs.ball.velocity
@@ -522,7 +707,8 @@ class MyTeam(TeamController):
                 if k_ is None or self._through_body(px, py, bx, by, ux, uy):
                     continue
                 sp = k_[2]
-                res = self._rollout(bx, by, ux * sp, uy * sp, ours, theirs, k)
+                sch = self._schedule(bx, by, ux, uy, ours, theirs) if PRUNE else None
+                res = self._rollout(bx, by, ux * sp, uy * sp, ours, theirs, k, sch)
                 if res[0] == 1:
                     v = P['shot_w'] - 0.02 * d
                     if v > bestv:
@@ -530,49 +716,43 @@ class MyTeam(TeamController):
                         best = (k_, ux, uy, 'shot')
         # passes / touches
         t0 = _clock()
-        for ux, uy in DIRS:
-            if _clock() - t0 > BUDGET:
-                break
-            if self._through_body(px, py, bx, by, ux, uy):
-                continue
-            for want in SPEEDS:
-                k_ = _strike(bvx, bvy, ux, uy, want)
-                if k_ is None:
+        if TWO:
+            # coarse ring, then refine around the two best directions
+            ring = []
+            for (ux, uy) in COARSE:
+                if self._through_body(px, py, bx, by, ux, uy):
                     continue
-                sp = k_[2]
-                res = self._rollout(bx, by, ux * sp, uy * sp, ours, theirs, k)
-                goal, ot, ox, oy, oid, tt, tx_, ty_ = res
-                if goal == 1:
-                    v = 9.0
-                elif goal == -1:
-                    v = -50.0
-                elif ot is not None and (tt is None or ot < tt):
-                    m = (tt - ot) if tt is not None else 8
-                    v = self._posval(ox, oy) + P['mw'] * min(m, 8) - P['tw'] * ot
-                    if SQ and ox > SQX:
-                        q = self._shotq(ox, oy)
-                        if q > 3.0:
-                            q = 3.0
-                        elif q < -3.0:
-                            q = -3.0
-                        v += SQ * q / 3.0
-                    need = P['m0'] + P['m1'] * ot
-                    if m <= need:
-                        v -= P['cpen'] * (1.0 + need - m) * 0.5
-                    if oid == k:
-                        v += P['drib']
-                elif tt is not None and (ot is None or tt < ot):
-                    v = -P['lose'] - self._danger(tx_, ty_) + 0.01 * tx_
-                else:
-                    # dead heat / nobody
-                    if ot is None:
-                        x_, y_ = bx, by
-                    else:
-                        x_, y_ = ox, oy
-                    v = -P['dead'] + 0.5 * self._posval(x_, y_) - 0.5 * self._danger(x_, y_)
+                v, kk = self._evaldir(k, bx, by, bvx, bvy, ux, uy, CSP, ours, theirs)
+                if kk is not None:
+                    ring.append((v, ux, uy, kk))
+            ring.sort(key=lambda e: -e[0])
+            for v, ux, uy, kk in ring[:1]:
                 if v > bestv:
                     bestv = v
-                    best = (k_, ux, uy, 'play')
+                    best = (kk, ux, uy, 'play')
+            for v0, ux0, uy0, kk0 in ring[:TOPK]:
+                for ca, sa in REFINE:
+                    if _clock() - t0 > BUDGET:
+                        break
+                    ux = ux0 * ca - uy0 * sa
+                    uy = uy0 * ca + ux0 * sa
+                    if self._through_body(px, py, bx, by, ux, uy):
+                        continue
+                    sps = SPEEDS if (ca != 1.0 or sa != 0.0) else RSP
+                    v, kk = self._evaldir(k, bx, by, bvx, bvy, ux, uy, sps, ours, theirs)
+                    if kk is not None and v > bestv:
+                        bestv = v
+                        best = (kk, ux, uy, 'play')
+        else:
+            for (ux, uy), sps in CANDS:
+                if _clock() - t0 > BUDGET:
+                    break
+                if self._through_body(px, py, bx, by, ux, uy):
+                    continue
+                v, kk = self._evaldir(k, bx, by, bvx, bvy, ux, uy, sps, ours, theirs)
+                if kk is not None and v > bestv:
+                    bestv = v
+                    best = (kk, ux, uy, 'play')
         if best is None:
             return None
         k_, ux, uy, kind = best
