@@ -1,4 +1,4 @@
-"""Athalia Mamba v91 - race-model football.
+"""Athalia Mamba v94 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
@@ -112,8 +112,8 @@ RS_W = P.get('rs_w', 3.0)
 RS_DIST = P.get('rs_dist', 30.0)
 CH_T = P.get('ch_t', 0.5)
 ICD = int(P.get('icd', 1))
-SKIP = int(P.get('skip', 1))
-ISTEP = int(P.get('istep', 1))
+SKIP = int(P.get('skip', 3))
+ISTEP = int(P.get('istep', 2))
 KRC = KR * KR
 PRUNE = int(P.get('prune', 1))
 SQ = P['sq']
@@ -211,7 +211,7 @@ DEEPX = P.get('deepx', -35.0)
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "91"
+    version = "94"
 
     def __init__(self):
         self.reset(0)
