@@ -1,16 +1,17 @@
-"""Athalia Mamba v85 - race-model football.
+"""Athalia Mamba v86 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
-points of the goal mouth, and passes or touches to himself in 36 directions at
-five speeds, the most forward first. Every player on the pitch is raced to
-each ball with the engine's own movement model (v' = 0.9 v + a, capped at 8). Our
-own players get a three-tick reaction delay and half a unit less reach, so we
-only count passes we really collect. The kick whose ball we win first,
-furthest forward and with the most time to spare, is the one played; a ball
-won in the attacking third earns extra credit for how open a first-time shot
-from there would be against a keeper on his line. A shot is taken only when no
-opponent, the keeper included, can reach the ball before it crosses the line.
+points of the goal mouth, and passes or touches to himself in the 16 most
+forward directions on a 10-degree ring (straight ahead out to about 75 degrees
+either side) at five speeds. Every player on the pitch is raced to each ball
+with the engine's own movement model (v' = 0.9 v + a, capped at 8). Our own
+players get a three-tick reaction delay and half a unit less reach, so we only
+count passes we really collect. The kick whose ball we win first, furthest
+forward and with the most time to spare, is the one played; a ball won in the
+attacking third earns extra credit for how open a first-time shot from there
+would be against a keeper on his line. A shot is taken only when no opponent,
+the keeper included, can reach the ball before it crosses the line.
 
 Off the ball: the player who can reach a loose ball first, counting from when
 his kick cooldown ends, goes to meet it, so a dribbler runs alongside his ball
@@ -22,7 +23,10 @@ for the earliest point of any shot he can reach. On their kickoff we stand in
 the passing lanes to their forwards and steer round the centre circle, so we
 never give away a foul.
 
-The pass search has an 8 ms wall-clock budget, well inside the 20 ms deadline.
+The search is a fixed set of candidates, so the team decides the same way on
+any machine; a 10 ms wall-clock guard is there only for an overloaded server.
+Looking at every direction made the team keep the ball at the back against
+sides that mark tightly and wait; looking forward makes it attack them.
 """
 
 from math import sqrt, atan2, cos, sin
@@ -81,6 +85,11 @@ ODEL = int(P.get('odel', 3))
 ORAD = P.get('orad', 0.5)
 KO_R = 10.9
 TDEL = int(P.get('tdel', 0))
+TDEL_DEFAULT = TDEL
+RS_DEL = int(P.get('rs_del', 0))
+RS_W = P.get('rs_w', 3.0)
+RS_DIST = P.get('rs_dist', 30.0)
+CH_T = P.get('ch_t', 0.5)
 ICD = int(P.get('icd', 1))
 SKIP = int(P.get('skip', 1))
 ISTEP = int(P.get('istep', 1))
@@ -154,7 +163,7 @@ def _dirs(step):
 
 # most forward first, so a cut-short search has looked at the useful ones
 DIRS = sorted(_dirs(int(P.get('dstep', 10))), key=lambda d: -d[0])
-BUDGET = P.get('budget', 0.008)
+BUDGET = P.get('budget', 0.010)
 
 
 def _cands(spec):
@@ -173,11 +182,12 @@ if 'dirset' in P:
     CANDS = _cands(P['dirset'])
 else:
     CANDS = [(d, SPEEDS) for d in DIRS]
+CANDS = CANDS[:int(P.get('ndirs', 16))]
 
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "85"
+    version = "86"
 
     def __init__(self):
         self.reset(0)
@@ -488,7 +498,7 @@ class MyTeam(TeamController):
         st.sort()
         return so, st
 
-    def _rollout(self, x, y, vx, vy, ours, theirs, kicker, sched=None):
+    def _rollout(self, x, y, vx, vy, ours, theirs, kicker, sched=None, tdel=TDEL_DEFAULT):
         """Roll the ball; return (goal, our_tick, our_x, our_y, our_id, their_tick, their_x, their_y)."""
         ot = None
         tt = None
@@ -544,7 +554,7 @@ class MyTeam(TeamController):
             while it < nst and (st[it][0] <= n or not flat):
                 athem.append(theirs[st[it][1]])
                 it += 1
-            nt = n - TDEL if n > TDEL else 0
+            nt = n - tdel if n > tdel else 0
             c = C[nt]
             rr = R0[nt] + r
             rr *= rr
@@ -691,6 +701,9 @@ class MyTeam(TeamController):
         ours, theirs = self._reach_tables(k, 5)
         best = None
         bestv = -1e9
+        t0 = _clock()
+        sc = obs.score
+        chase = RS_DEL > 0 and sc[0] <= sc[1] and obs.time_remaining < CH_T
         base = self._posval(bx, by)
         # shots
         gdx = HW - bx
@@ -712,8 +725,16 @@ class MyTeam(TeamController):
                     if v > bestv:
                         bestv = v
                         best = (k_, ux, uy, 'shot')
+                elif chase and d < RS_DIST:
+                    # level or behind late on: a shot the keeper only just
+                    # reaches is worth taking
+                    res = self._rollout(bx, by, ux * sp, uy * sp, ours, theirs, k, sch, RS_DEL)
+                    if res[0] == 1:
+                        v = RS_W - 0.02 * d
+                        if v > bestv:
+                            bestv = v
+                            best = (k_, ux, uy, 'shot')
         # passes / touches
-        t0 = _clock()
         if TWO:
             # coarse ring, then refine around the two best directions
             ring = []
