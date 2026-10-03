@@ -1,4 +1,4 @@
-"""Athalia Mamba v87 - race-model football.
+"""Athalia Mamba v88 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
@@ -26,9 +26,9 @@ the passing lanes to their forwards and steer round the centre circle, so we
 never give away a foul.
 
 The search is a fixed set of candidates, so the team decides the same way on
-any machine; a 10 ms wall-clock guard is there only for an overloaded server.
-Looking at every direction made the team keep the ball at the back against
-sides that mark tightly and wait; looking forward makes it attack them.
+any machine. A 12 ms clock, started when the decision starts, only trims the
+widest-angle candidates on the rare tick a slow server would otherwise push
+the decision past the 20 ms deadline.
 """
 
 from math import sqrt, atan2, cos, sin
@@ -88,6 +88,23 @@ ORAD = P.get('orad', 0.5)
 KO_R = 10.9
 TDEL = int(P.get('tdel', 0))
 TDEL_DEFAULT = TDEL
+
+# Reach tables by tick: ours start a delay late with less reach, theirs on time.
+CO = []
+RO2 = []
+LO2 = []
+CT = []
+RT2 = []
+LT2 = []
+for _n in range(NT + 2):
+    _no = _n - ODEL if _n > ODEL else 0
+    CO.append(C[_no])
+    RO2.append((R0[_no] + KR - ORAD) ** 2)
+    LO2.append((0.4 * _no + KR - ORAD) ** 2)
+    _nt = _n - TDEL if _n > TDEL else 0
+    CT.append(C[_nt])
+    RT2.append((R0[_nt] + KR) ** 2)
+    LT2.append((0.4 * _nt + KR) ** 2)
 RS_DEL = int(P.get('rs_del', 0))
 RS_W = P.get('rs_w', 3.0)
 RS_DIST = P.get('rs_dist', 30.0)
@@ -165,7 +182,7 @@ def _dirs(step):
 
 # most forward first, so a cut-short search has looked at the useful ones
 DIRS = sorted(_dirs(int(P.get('dstep', 10))), key=lambda d: -d[0])
-BUDGET = P.get('budget', 0.010)
+BUDGET = P.get('budget', 0.012)
 
 
 def _cands(spec):
@@ -192,12 +209,13 @@ DEEPX = P.get('deepx', -35.0)
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "87"
+    version = "88"
 
     def __init__(self):
         self.reset(0)
 
     def reset(self, seed):
+        self.t_act = _clock()
         self.ko_t0 = None
         self.last_t = -1
         self.tk = 0
@@ -209,6 +227,7 @@ class MyTeam(TeamController):
 
     # ------------------------------------------------------------------ act
     def act(self, obs):
+        self.t_act = _clock()
         t = self.tk + 1
         self.tk = t
         ca = self.cache
@@ -466,14 +485,22 @@ class MyTeam(TeamController):
 
     # ----------------------------------------------------------- on ball
     def _reach_tables(self, kicker, extra_cd):
-        """Per-player (px, py, vx, vy, ready_tick)."""
+        """Per player (px, py, vx, vy, ready_tick, drift_x[n], drift_y[n]):
+        where each one would coast to by tick n, worked out once per decision
+        instead of inside every rolled kick."""
         ours = []
         for i, p in enumerate(self.us):
             ready = p[4]
             if i == kicker:
                 ready = 5
-            ours.append((p[0], p[1], p[2], p[3], ready))
-        theirs = [(p[0], p[1], p[2], p[3], 0) for p in self.th]
+            px, py, pvx, pvy = p[0], p[1], p[2], p[3]
+            ours.append((px, py, pvx, pvy, ready,
+                         [px + pvx * c for c in CO], [py + pvy * c for c in CO]))
+        theirs = []
+        for p in self.th:
+            px, py, pvx, pvy = p[0], p[1], p[2], p[3]
+            theirs.append((px, py, pvx, pvy, 0,
+                           [px + pvx * c for c in CT], [py + pvy * c for c in CT]))
         return ours, theirs
 
     def _schedule(self, bx, by, ux, uy, ours, theirs):
@@ -482,7 +509,8 @@ class MyTeam(TeamController):
         it before then). Ours in id order, theirs in any order."""
         r = KR
         so = []
-        for j, (px, py, pvx, pvy, ready) in enumerate(ours):
+        for j, e in enumerate(ours):
+            px, py, ready = e[0], e[1], e[4]
             pd = (px - bx) * uy - (py - by) * ux
             if pd < 0.0:
                 pd = -pd
@@ -493,7 +521,8 @@ class MyTeam(TeamController):
             so.append((n, j))
         so.sort()
         st = []
-        for j, (px, py, pvx, pvy, ready) in enumerate(theirs):
+        for j, e in enumerate(theirs):
+            px, py = e[0], e[1]
             pd = (px - bx) * uy - (py - by) * ux
             if pd < 0.0:
                 pd = -pd
@@ -503,7 +532,7 @@ class MyTeam(TeamController):
         st.sort()
         return so, st
 
-    def _rollout(self, x, y, vx, vy, ours, theirs, kicker, sched=None, tdel=TDEL_DEFAULT):
+    def _rollout(self, x, y, vx, vy, ours, theirs, kicker, sched=None):
         """Roll the ball; return (goal, our_tick, our_x, our_y, our_id, their_tick, their_x, their_y)."""
         ot = None
         tt = None
@@ -559,28 +588,18 @@ class MyTeam(TeamController):
             while it < nst and (st[it][0] <= n or not flat):
                 athem.append(theirs[st[it][1]])
                 it += 1
-            nt = n - tdel if n > tdel else 0
-            c = C[nt]
-            rr = R0[nt] + r
-            rr *= rr
-            lim = 0.4 * nt + r
-            lim *= lim
             if ot is None and aours:
-                no = n - ODEL if n > ODEL else 0
-                co = C[no]
-                ro = R0[no] + r - ORAD
-                ro *= ro
-                lo = 0.4 * no + r - ORAD
-                lo *= lo
+                ro = RO2[n]
+                lo = LO2[n]
                 for j in aours:
-                    px, py, pvx, pvy, ready = ours[j]
-                    if n < ready:
+                    e = ours[j]
+                    if n < e[4]:
                         continue
-                    dx = x - px - pvx * co
-                    dy = y - py - pvy * co
+                    dx = x - e[5][n]
+                    dy = y - e[6][n]
                     if dx * dx + dy * dy <= ro:
-                        ex = x - px
-                        ey = y - py
+                        ex = x - e[0]
+                        ey = y - e[1]
                         if ex * ex + ey * ey <= lo:
                             ot = n
                             ox = x
@@ -588,12 +607,14 @@ class MyTeam(TeamController):
                             oid = j
                             break
             if tt is None:
-                for (px, py, pvx, pvy, ready) in athem:
-                    dx = x - px - pvx * c
-                    dy = y - py - pvy * c
+                rr = RT2[n]
+                lim = LT2[n]
+                for e in athem:
+                    dx = x - e[5][n]
+                    dy = y - e[6][n]
                     if dx * dx + dy * dy <= rr:
-                        ex = x - px
-                        ey = y - py
+                        ex = x - e[0]
+                        ey = y - e[1]
                         if ex * ex + ey * ey <= lim:
                             tt = n
                             tx_ = x
@@ -659,11 +680,15 @@ class MyTeam(TeamController):
         bv = -1e9
         bk = None
         sch = self._schedule(bx, by, ux, uy, ours, theirs) if PRUNE else None
+        last = -1.0
         for want in sps:
             k_ = _strike(bvx, bvy, ux, uy, want)
             if k_ is None:
                 continue
             sp = k_[2]
+            if sp == last:
+                continue
+            last = sp
             res = self._rollout(bx, by, ux * sp, uy * sp, ours, theirs, k, sch)
             goal, ot, ox, oy, oid, tt, tx_, ty_ = res
             if goal == 1:
@@ -706,7 +731,7 @@ class MyTeam(TeamController):
         ours, theirs = self._reach_tables(k, 5)
         best = None
         bestv = -1e9
-        t0 = _clock()
+        t0 = self.t_act
         sc = obs.score
         chase = RS_DEL > 0 and sc[0] <= sc[1] and obs.time_remaining < CH_T
         base = self._posval(bx, by)
@@ -733,7 +758,7 @@ class MyTeam(TeamController):
                 elif chase and d < RS_DIST:
                     # level or behind late on: a shot the keeper only just
                     # reaches is worth taking
-                    res = self._rollout(bx, by, ux * sp, uy * sp, ours, theirs, k, sch, RS_DEL)
+                    res = self._rollout(bx, by, ux * sp, uy * sp, ours, theirs, k, sch)
                     if res[0] == 1:
                         v = RS_W - 0.02 * d
                         if v > bestv:
