@@ -1,4 +1,4 @@
-"""Athalia Mamba v88 - race-model football.
+"""Athalia Mamba v89 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
@@ -18,12 +18,13 @@ the ball before it crosses the line.
 Off the ball: the player who can reach a loose ball first, counting from when
 his kick cooldown ends, goes to meet it, so a dribbler runs alongside his ball
 instead of into it. When they have it, the player who can get goal-side of the
-ball fastest presses it. One man always stays between the ball and our goal,
-opponents near our goal are marked goal-side in order of danger, and the keeper
-narrows the angle on the line from the ball to the middle of the goal and goes
-for the earliest point of any shot he can reach. On their kickoff we stand in
-the passing lanes to their forwards and steer round the centre circle, so we
-never give away a foul.
+ball fastest presses it. One man always stays between the ball and our goal.
+Opponents near our goal are marked, in order of danger, goal-side of where
+they will be in about a second, so a runner into the box is not left behind.
+The keeper narrows the angle on the line from the ball to the middle of the
+goal and goes for the earliest point of any shot he can reach. On their
+kickoff we stand in the passing lanes to their forwards and steer round the
+centre circle, so we never give away a foul.
 
 The search is a fixed set of candidates, so the team decides the same way on
 any machine. A 12 ms clock, started when the decision starts, only trims the
@@ -113,6 +114,7 @@ ICD = int(P.get('icd', 1))
 SKIP = int(P.get('skip', 1))
 ISTEP = int(P.get('istep', 1))
 KRC = KR * KR
+MK_LEAD = P.get('mk_lead', 0.9)
 PRUNE = int(P.get('prune', 1))
 SQ = P['sq']
 SQX = P['sqx']
@@ -209,7 +211,7 @@ DEEPX = P.get('deepx', -35.0)
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "88"
+    version = "89"
 
     def __init__(self):
         self.reset(0)
@@ -932,6 +934,9 @@ class MyTeam(TeamController):
                 ox, oy = th[j][0], th[j][1]
                 if ox > 40.0:
                     continue  # their keeper
+                # mark where he is going, not where he is
+                ox += th[j][2] * MK_LEAD
+                oy += th[j][3] * MK_LEAD
                 gx_ = -HW - ox
                 gy_ = -oy
                 dg = sqrt(gx_ * gx_ + gy_ * gy_) or 1.0
