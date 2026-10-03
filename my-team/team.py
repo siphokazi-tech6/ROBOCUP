@@ -1,4 +1,4 @@
-"""Athalia Mamba v90 - race-model football.
+"""Athalia Mamba v91 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
@@ -211,7 +211,7 @@ DEEPX = P.get('deepx', -35.0)
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "90"
+    version = "91"
 
     def __init__(self):
         self.reset(0)
@@ -871,11 +871,12 @@ class MyTeam(TeamController):
         d = sqrt(dx * dx + dy * dy)
         if d < 1e-6:
             d = 1e-6
-        depth = 0.15 * d
+        # well off the line: shots here roll, so standing out cuts the angle
+        depth = 0.4 * d
         if depth < 1.5:
             depth = 1.5
-        elif depth > 5.0:
-            depth = 5.0
+        elif depth > 11.0:
+            depth = 11.0
         tx = gx + dx / d * depth
         ty = dy / d * depth
         if ty > GH - 1.0:
