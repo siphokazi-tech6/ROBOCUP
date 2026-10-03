@@ -10,7 +10,7 @@
 name = "Athalia Mamba"
 
 # Bump this when you change your tactics, so you can tell your runs apart.
-version = "92"
+version = "93"
 
 # Optional, up to 500 characters. A sentence on what your team tries to do.
 # notes = "Holds possession and looks for a clear pass before shooting."
