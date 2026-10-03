@@ -1,4 +1,4 @@
-"""Athalia Mamba v88 - race-model football.
+"""Athalia Mamba v90 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
@@ -18,12 +18,13 @@ the ball before it crosses the line.
 Off the ball: the player who can reach a loose ball first, counting from when
 his kick cooldown ends, goes to meet it, so a dribbler runs alongside his ball
 instead of into it. When they have it, the player who can get goal-side of the
-ball fastest presses it. One man always stays between the ball and our goal,
-opponents near our goal are marked goal-side in order of danger, and the keeper
-narrows the angle on the line from the ball to the middle of the goal and goes
-for the earliest point of any shot he can reach. On their kickoff we stand in
-the passing lanes to their forwards and steer round the centre circle, so we
-never give away a foul.
+ball fastest presses it. One man always stays between the ball and our goal.
+Opponents near our goal are marked, in order of danger, goal-side of where
+they will be in about a second, so a runner into the box is not left behind.
+The keeper narrows the angle on the line from the ball to the middle of the
+goal and goes for the earliest point of any shot he can reach. On their
+kickoff we stand in the passing lanes to their forwards and steer round the
+centre circle, so we never give away a foul.
 
 The search is a fixed set of candidates, so the team decides the same way on
 any machine. A 12 ms clock, started when the decision starts, only trims the
@@ -83,6 +84,7 @@ P = dict(px=0.03, pz=0.04, py=0.02, mw=0.12, tw=0.004, m0=1.0, m1=0.0, cpen=0.6,
          mk_g=1.8, mk_b=0.8, mk_zone=30.0, ball_far=30.0,
          fwd_dx=18.0, fwd_y=12.0, space=0, sp_step=6.0, sp_lane=0.5, sp_x=0.1,
          sq=2.0, sqx=15.0, sqd=2.5)
+LSAFE_X = P.get('lmax2', -6.0)
 ODEL = int(P.get('odel', 3))
 ORAD = P.get('orad', 0.5)
 KO_R = 10.9
@@ -209,7 +211,7 @@ DEEPX = P.get('deepx', -35.0)
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "88"
+    version = "90"
 
     def __init__(self):
         self.reset(0)
@@ -901,6 +903,14 @@ class MyTeam(TeamController):
                 lx = -36.0
             elif lx > -12.0:
                 lx = -12.0
+            # nobody of theirs up in our half to break on us: the last man
+            # can come up behind the play and recycle the ball
+            if lx == -12.0 and bx - 28.0 > -12.0:
+                for q in th:
+                    if q[0] < 0.0:
+                        break
+                else:
+                    lx = bx - 28.0 if bx - 28.0 < LSAFE_X else LSAFE_X
             last = (lx, by * 0.25)
         else:
             k = gd * 0.45
