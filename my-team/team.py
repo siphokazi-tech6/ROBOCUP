@@ -1,4 +1,4 @@
-"""Athalia Mamba v91 - race-model football.
+"""Athalia Mamba v92 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
@@ -211,7 +211,7 @@ DEEPX = P.get('deepx', -35.0)
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "91"
+    version = "92"
 
     def __init__(self):
         self.reset(0)
@@ -1134,7 +1134,9 @@ class MyTeam(TeamController):
         if self.ko_t0 is None:
             self.ko_t0 = t
         el = t - self.ko_t0
-        spots = [(-48.0, 0.0), (-25.0, 0.0), (-6.0, 0.0), (8.0, -18.0), (8.0, 18.0)]
+        # forwards up behind their kickoff line: zone defences leave the
+        # space between their back line and keeper open
+        spots = [(-48.0, 0.0), (-25.0, 0.0), (-6.0, 0.0), (35.0, -14.0), (35.0, 14.0)]
         for i in range(5):
             tx, ty = spots[i]
             if i == 2:
