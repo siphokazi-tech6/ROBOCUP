@@ -1,4 +1,4 @@
-"""Athalia Mamba v95 - race-model football.
+"""Athalia Mamba v96 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
@@ -117,6 +117,10 @@ for _n in range(NT + 2):
     CT.append(C[_nt])
     RT2.append((R0[_nt] + KR) ** 2)
     LT2.append((0.4 * _nt + KR) ** 2)
+SPW = 5.0
+SPD0 = 12.0
+SPD1 = 20.0
+SPK = 3.0
 RS_DEL = int(P.get('rs_del', 0))
 RS_W = P.get('rs_w', 3.0)
 RS_DIST = P.get('rs_dist', 30.0)
@@ -221,7 +225,7 @@ DEEPX = P.get('deepx', -35.0)
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "95"
+    version = "96"
 
     def __init__(self):
         self.reset(0)
@@ -730,6 +734,37 @@ class MyTeam(TeamController):
                 best = m
         return best
 
+    def _slack2(self, x, y, vx, vy, theirs):
+        """A straight shot's closest calls before it crosses the line: the
+        least spare distance any of their outfield players has to it, and
+        the least their keeper has (negative = could reach it). None if it
+        bounces or misses."""
+        th = self.th
+        kp = max(range(len(th)), key=lambda j: th[j][0])
+        fm = km = 99.0
+        for n in range(1, NT + 1):
+            x += vx * DT
+            y += vy * DT
+            if y > BYM or y < -BYM:
+                return None
+            if x > BXM:
+                if -GH + 0.3 < y < GH - 0.3:
+                    return fm, km
+                return None
+            vx *= FR
+            vy *= FR
+            r = R0[n] + KR
+            for j, e in enumerate(theirs):
+                dx = x - e[5][n]
+                dy = y - e[6][n]
+                m = sqrt(dx * dx + dy * dy) - r
+                if j == kp:
+                    if m < km:
+                        km = m
+                elif m < fm:
+                    fm = m
+        return None
+
     @staticmethod
     def _danger(x, y):
         ay = y if y > 0 else -y
@@ -816,6 +851,15 @@ class MyTeam(TeamController):
                     if v > bestv:
                         bestv = v
                         best = (k_, ux, uy, 'shot')
+                elif SPD0 <= d <= SPD1:
+                    # 12-20 out with only their keeper able to get there:
+                    # real keepers concede most of these
+                    sl = self._slack2(bx, by, ux * sp, uy * sp, theirs)
+                    if sl is not None and sl[0] > 0.0 and sl[1] > -SPK:
+                        v = SPW - 0.02 * d
+                        if v > bestv:
+                            bestv = v
+                            best = (k_, ux, uy, 'shot')
                 elif chase and d < RS_DIST:
                     # level or behind late on: a shot the keeper only just
                     # reaches is worth taking
