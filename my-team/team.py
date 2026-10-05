@@ -1,4 +1,4 @@
-"""Athalia Mamba v91 - race-model football.
+"""Athalia Mamba v95 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
@@ -68,6 +68,16 @@ for _n in range(1, NT + 2):
     _g *= 0.9
     _c += _g * DT
     C.append(_c)
+# Intercept reach limits by tick, squared (as the intercept loop used to
+# work them out each time).
+_IRR = []
+_ILIM = []
+for _n in range(NT + 2):
+    _rr = R0[_n] + KR
+    _IRR.append(_rr * _rr)
+    _lm = 0.4 * _n + KR
+    _ILIM.append(_lm * _lm)
+_FRP = [FR ** _n for _n in range(NT + 2)]
 # Rolled distance per unit ball speed after n ticks.
 SPAN = [0.0]
 _s = 0.0
@@ -211,7 +221,7 @@ DEEPX = P.get('deepx', -35.0)
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "91"
+    version = "95"
 
     def __init__(self):
         self.reset(0)
@@ -356,33 +366,46 @@ class MyTeam(TeamController):
 
     # ----------------------------------------------------------- physics
     def _traj(self, x, y, vx, vy):
+        self.tspd = sqrt(vx * vx + vy * vy)
         out = [(x, y)]
+        app = out.append
+        bym = BYM
+        bxm = BXM
+        gh = GH
+        fr = FR
+        dt = DT
+        b2y = 2 * BYM
+        b2x = 2 * BXM
         for n in range(NT + 1):
-            x += vx * DT
-            y += vy * DT
-            if y > BYM:
-                y = 2 * BYM - y
+            if vx == 0.0 and vy == 0.0:
+                # at rest (dead ball, or stopped in a goal): it stays put
+                out.extend([(x, y)] * (NT + 1 - n))
+                return out
+            x += vx * dt
+            y += vy * dt
+            if y > bym:
+                y = b2y - y
                 vy = -0.75 * vy
-            elif y < -BYM:
-                y = -2 * BYM - y
+            elif y < -bym:
+                y = -b2y - y
                 vy = -0.75 * vy
-            if x > BXM:
-                if -GH < y < GH:
-                    x = BXM
+            if x > bxm:
+                if -gh < y < gh:
+                    x = bxm
                     vx = vy = 0.0
                 else:
-                    x = 2 * BXM - x
+                    x = b2x - x
                     vx = -0.75 * vx
-            elif x < -BXM:
-                if -GH < y < GH:
-                    x = -BXM
+            elif x < -bxm:
+                if -gh < y < gh:
+                    x = -bxm
                     vx = vy = 0.0
                 else:
-                    x = -2 * BXM - x
+                    x = -b2x - x
                     vx = -0.75 * vx
-            vx *= FR
-            vy *= FR
-            out.append((x, y))
+            vx *= fr
+            vy *= fr
+            app((x, y))
         return out
 
     def _intercept(self, p, traj, keeper):
@@ -390,6 +413,24 @@ class MyTeam(TeamController):
         px, py, vx, vy, cd = p
         r = KR
         n0 = cd if (ICD and cd) else 0
+        # nobody can be in range before he could have run the gap the ball's
+        # roll leaves him (bounces and the goal only shorten the ball's
+        # distance from where it started): skip those ticks outright
+        bx0, by0 = traj[0]
+        need = sqrt((bx0 - px) ** 2 + (by0 - py) ** 2) - r - 1e-6
+        if need > 0.4 * n0 + self.tspd * SPAN[n0]:
+            sp = self.tspd
+            if 0.4 * NT + sp * SPAN[NT] < need:
+                return NT + 5
+            lo = n0
+            hi = NT
+            while lo < hi:
+                mid = (lo + hi) >> 1
+                if 0.4 * mid + sp * SPAN[mid] >= need:
+                    hi = mid
+                else:
+                    lo = mid + 1
+            n0 = lo
         if ISTEP > 1:
             # coarse pass, then the exact first tick just before the hit
             n = n0
@@ -412,18 +453,27 @@ class MyTeam(TeamController):
             if lo < n0:
                 lo = n0
             n0 = lo
-        for n in range(n0, NT + 1):
+        IRR = _IRR
+        ILIM = _ILIM
+        bstep = self.tspd * DT
+        n = n0
+        while n <= NT:
             tx, ty = traj[n]
-            c = C[n]
-            dx = tx - px - vx * c
-            dy = ty - py - vy * c
-            rr = R0[n] + r
-            if dx * dx + dy * dy <= rr * rr:
-                ex = tx - px
-                ey = ty - py
-                lim = 0.4 * n + r
-                if ex * ex + ey * ey <= lim * lim:
+            ex = tx - px
+            ey = ty - py
+            e2 = ex * ex + ey * ey
+            if e2 <= ILIM[n]:
+                c = C[n]
+                dx = ex - vx * c
+                dy = ey - vy * c
+                if dx * dx + dy * dy <= IRR[n]:
                     return n
+                n += 1
+            else:
+                # the gap closes by at most his 0.4 plus the ball's step a
+                # tick, so the next ticks that cannot close it are skipped
+                k = int((sqrt(e2) - (0.4 * n + r)) / (0.4 + bstep * _FRP[n]))
+                n += k if k > 1 else 1
         return NT + 5
 
     # ----------------------------------------------------------- pressing
@@ -536,6 +586,15 @@ class MyTeam(TeamController):
 
     def _rollout(self, x, y, vx, vy, ours, theirs, kicker, sched=None):
         """Roll the ball; return (goal, our_tick, our_x, our_y, our_id, their_tick, their_x, their_y)."""
+        _lDT = DT
+        _lBYM = BYM
+        _lBXM = BXM
+        _lGH = GH
+        _lRO2 = RO2
+        _lLO2 = LO2
+        _lRT2 = RT2
+        _lLT2 = LT2
+        _lNT = NT
         ot = None
         tt = None
         ox = oy = tx_ = ty_ = 0.0
@@ -554,27 +613,27 @@ class MyTeam(TeamController):
         nso = len(so)
         nst = len(st)
         flat = True
-        for n in range(1, NT + 1):
-            x += vx * DT
-            y += vy * DT
-            if y > BYM:
-                y = 2 * BYM - y
+        for n in range(1, _lNT + 1):
+            x += vx * _lDT
+            y += vy * _lDT
+            if y > _lBYM:
+                y = 2 * _lBYM - y
                 vy = -0.75 * vy
                 flat = False
-            elif y < -BYM:
-                y = -2 * BYM - y
+            elif y < -_lBYM:
+                y = -2 * _lBYM - y
                 vy = -0.75 * vy
                 flat = False
-            if x > BXM:
-                if -GH + 0.3 < y < GH - 0.3 and tt is None:
+            if x > _lBXM:
+                if -_lGH + 0.3 < y < _lGH - 0.3 and tt is None:
                     return (1, ot, ox, oy, oid, tt, tx_, ty_)
-                x = 2 * BXM - x
+                x = 2 * _lBXM - x
                 vx = -0.75 * vx
                 flat = False
-            elif x < -BXM:
-                if -GH < y < GH and ot is None:
+            elif x < -_lBXM:
+                if -_lGH < y < _lGH and ot is None:
                     return (-1, ot, ox, oy, oid, tt, tx_, ty_)
-                x = -2 * BXM - x
+                x = -2 * _lBXM - x
                 vx = -0.75 * vx
                 flat = False
             vx *= FR
@@ -591,8 +650,8 @@ class MyTeam(TeamController):
                 athem.append(theirs[st[it][1]])
                 it += 1
             if ot is None and aours:
-                ro = RO2[n]
-                lo = LO2[n]
+                ro = _lRO2[n]
+                lo = _lLO2[n]
                 for j in aours:
                     e = ours[j]
                     if n < e[4]:
@@ -609,8 +668,8 @@ class MyTeam(TeamController):
                             oid = j
                             break
             if tt is None:
-                rr = RT2[n]
-                lim = LT2[n]
+                rr = _lRT2[n]
+                lim = _lLT2[n]
                 for e in athem:
                     dx = x - e[5][n]
                     dy = y - e[6][n]
