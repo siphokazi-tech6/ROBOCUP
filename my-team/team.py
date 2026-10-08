@@ -1,4 +1,4 @@
-"""Athalia Mamba v97 - race-model football.
+"""Athalia Mamba v98 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
@@ -117,11 +117,6 @@ for _n in range(NT + 2):
     CT.append(C[_nt])
     RT2.append((R0[_nt] + KR) ** 2)
     LT2.append((0.4 * _nt + KR) ** 2)
-SPW = 5.0
-SPD0 = 12.0
-SPD1 = 20.0
-SPK = 3.0
-SPT = 0.5
 RS_DEL = int(P.get('rs_del', 0))
 RS_W = P.get('rs_w', 3.0)
 RS_DIST = P.get('rs_dist', 30.0)
@@ -133,6 +128,8 @@ KRC = KR * KR
 PRUNE = int(P.get('prune', 1))
 SQ = P['sq']
 SQX = P['sqx']
+KQ = 1
+PUSH = 0
 BEHIND = P.get('behind', 0.0)
 GYS = tuple(P.get('gys', (-6.2, -4.6, -2.3, 0.0, 2.3, 4.6, 6.2)))
 SPEEDS = tuple(None if s is None or s < 0 else s for s in P.get('speeds', (None, 15.0, 10.0, 8.5, 6.5)))
@@ -226,7 +223,7 @@ DEEPX = P.get('deepx', -35.0)
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "97"
+    version = "98"
 
     def __init__(self):
         self.reset(0)
@@ -291,6 +288,8 @@ class MyTeam(TeamController):
         th = [(p.position[0], p.position[1], p.velocity[0], p.velocity[1], p.kick_cooldown_ticks) for p in opp]
         self.us = us
         self.th = th
+        kq_ = max(th, key=lambda q: q[0])
+        self._kpos = (kq_[0], kq_[1])
 
         # ---- kickoff states: ball dead on the spot
         dead = bx == 0.0 and by == 0.0 and bvx == 0.0 and bvy == 0.0
@@ -702,6 +701,36 @@ class MyTeam(TeamController):
             v += P['pz'] * (x - 20.0) - P['py'] * ay * (x - 20.0) / 30.0
         return v
 
+    def _shotq_real(self, x, y):
+        """How open a first-time shot from (x, y) would be against their
+        keeper where he actually stands: the best spare reach, in units, over
+        three aims (negative = he covers it)."""
+        kx, ky = self._kpos
+        best = -9.0
+        for gy in (-5.6, 0.0, 5.6):
+            dx = HW - x
+            dy = gy - y
+            d = sqrt(dx * dx + dy * dy) or 1.0
+            ux = dx / d
+            uy = dy / d
+            rx = kx - x
+            ry = ky - y
+            a = rx * ux + ry * uy
+            if a < 0.0:
+                a = 0.0
+            if a > d:
+                a = d
+            pd = rx * uy - ry * ux
+            if pd < 0.0:
+                pd = -pd
+            n = int(a / 27.0 * HZ) + 1
+            if n > NT:
+                n = NT
+            m = pd - R0[n] - KR
+            if m > best:
+                best = m
+        return best
+
     @staticmethod
     def _shotq(x, y):
         """How open a first-time shot from (x, y) would be against a keeper
@@ -735,37 +764,6 @@ class MyTeam(TeamController):
                 best = m
         return best
 
-    def _slack2(self, x, y, vx, vy, theirs):
-        """A straight shot's closest calls before it crosses the line: the
-        least spare distance any of their outfield players has to it, and
-        the least their keeper has (negative = could reach it). None if it
-        bounces or misses."""
-        th = self.th
-        kp = max(range(len(th)), key=lambda j: th[j][0])
-        fm = km = 99.0
-        for n in range(1, NT + 1):
-            x += vx * DT
-            y += vy * DT
-            if y > BYM or y < -BYM:
-                return None
-            if x > BXM:
-                if -GH + 0.3 < y < GH - 0.3:
-                    return fm, km
-                return None
-            vx *= FR
-            vy *= FR
-            r = R0[n] + KR
-            for j, e in enumerate(theirs):
-                dx = x - e[5][n]
-                dy = y - e[6][n]
-                m = sqrt(dx * dx + dy * dy) - r
-                if j == kp:
-                    if m < km:
-                        km = m
-                elif m < fm:
-                    fm = m
-        return None
-
     @staticmethod
     def _danger(x, y):
         ay = y if y > 0 else -y
@@ -796,7 +794,7 @@ class MyTeam(TeamController):
                 m = (tt - ot) if tt is not None else 8
                 v = self._posval(ox, oy) + P['mw'] * min(m, 8) - P['tw'] * ot
                 if SQ and ox > SQX:
-                    q = self._shotq(ox, oy)
+                    q = self._shotq_real(ox, oy) if KQ else self._shotq(ox, oy)
                     if q > 3.0:
                         q = 3.0
                     elif q < -3.0:
@@ -832,15 +830,6 @@ class MyTeam(TeamController):
         sc = obs.score
         chase = RS_DEL > 0 and sc[0] <= sc[1] and obs.time_remaining < CH_T
         base = self._posval(bx, by)
-        # long-range tries only when it pays: level or behind in the second
-        # half, and never into a goalmouth packed with their players
-        spec_ok = False
-        if sc[0] <= sc[1] and obs.time_remaining < SPT:
-            packed = 0
-            for q in self.th:
-                if q[0] > HW - 6.0 and -GH - 2.0 < q[1] < GH + 2.0:
-                    packed += 1
-            spec_ok = packed < 3
         # shots
         gdx = HW - bx
         if gdx < 40.0:
@@ -861,15 +850,6 @@ class MyTeam(TeamController):
                     if v > bestv:
                         bestv = v
                         best = (k_, ux, uy, 'shot')
-                elif spec_ok and SPD0 <= d <= SPD1:
-                    # 12-20 out with only their keeper able to get there:
-                    # real keepers concede most of these
-                    sl = self._slack2(bx, by, ux * sp, uy * sp, theirs)
-                    if sl is not None and sl[0] > 0.0 and sl[1] > -SPK:
-                        v = SPW - 0.02 * d
-                        if v > bestv:
-                            bestv = v
-                            best = (k_, ux, uy, 'shot')
                 elif chase and d < RS_DIST:
                     # level or behind late on: a shot the keeper only just
                     # reaches is worth taking
@@ -1025,6 +1005,20 @@ class MyTeam(TeamController):
                         break
                 else:
                     lx = bx - 28.0 if bx - 28.0 < LSAFE_X else LSAFE_X
+            if PUSH:
+                # at most one of theirs on our side of the ball: no counter to
+                # fear, so the last man follows the play 20 units behind it
+                kx_ = self._kpos[0]
+                nup = 0
+                for q in th:
+                    if q[0] < bx - 2.0 and q[0] < kx_ - 0.5:
+                        nup += 1
+                if nup <= 1:
+                    px_ = bx - 20.0
+                    if px_ > 20.0:
+                        px_ = 20.0
+                    if px_ > lx:
+                        lx = px_
             last = (lx, by * 0.25)
         else:
             k = gd * 0.45
