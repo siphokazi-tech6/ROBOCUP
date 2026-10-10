@@ -1,4 +1,4 @@
-"""Athalia Mamba v98 - race-model football.
+"""Athalia Mamba v99 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
@@ -7,7 +7,7 @@ forward directions on a 10-degree ring (straight ahead out to about 75 degrees
 either side) at five speeds. The keeper, anyone in our last 15 units, and
 anyone with nothing playable forward look round the whole ring instead. Every
 player on the pitch is raced to each ball with the engine's own movement model
-(v' = 0.9 v + a, capped at 8). Our own players get a three-tick reaction delay
+(v' = 0.9 v + a, capped at 8). Our own players get a two-tick reaction delay
 and half a unit less reach, so we only count passes we really collect. The
 kick whose ball we win first, furthest forward and with the most time to
 spare, is the one played; a ball won in the attacking third earns extra credit
@@ -95,7 +95,7 @@ P = dict(px=0.03, pz=0.04, py=0.02, mw=0.12, tw=0.004, m0=1.0, m1=0.0, cpen=0.6,
          fwd_dx=18.0, fwd_y=12.0, space=0, sp_step=6.0, sp_lane=0.5, sp_x=0.1,
          sq=2.0, sqx=15.0, sqd=2.5)
 LSAFE_X = P.get('lmax2', -6.0)
-ODEL = int(P.get('odel', 3))
+ODEL = int(P.get('odel', 2))
 ORAD = P.get('orad', 0.5)
 KO_R = 10.9
 TDEL = int(P.get('tdel', 0))
@@ -223,7 +223,7 @@ DEEPX = P.get('deepx', -35.0)
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "98"
+    version = "99"
 
     def __init__(self):
         self.reset(0)
