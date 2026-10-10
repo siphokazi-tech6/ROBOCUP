@@ -1,4 +1,4 @@
-"""Athalia Mamba v103 - race-model football.
+"""Athalia Mamba v104 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
@@ -129,6 +129,9 @@ PRUNE = int(P.get('prune', 1))
 SQ = P['sq']
 SQX = P['sqx']
 KQ = 1
+KOE = 62       # ticks before an untaken restart of theirs counts as expired
+KON = 0
+KO_EL = 50
 PUSH = 0
 BEHIND = P.get('behind', 0.0)
 GYS = tuple(P.get('gys', (-6.2, -4.6, -2.3, 0.0, 2.3, 4.6, 6.2)))
@@ -223,7 +226,7 @@ DEEPX = P.get('deepx', -35.0)
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "103"
+    version = "104"
 
     def __init__(self):
         self.reset(0)
@@ -231,6 +234,8 @@ class MyTeam(TeamController):
     def reset(self, seed):
         self.t_act = _clock()
         self.ko_t0 = None
+        self.tko_t0 = None
+        self.ko_k = 2
         self.last_t = -1
         self.tk = 0
         self.full_t = -99
@@ -296,7 +301,16 @@ class MyTeam(TeamController):
         if dead:
             if ball.controlling_team == 0:
                 return self._our_kickoff(obs, ta)
-            return self._their_kickoff(obs, ta)
+            if not KOE:
+                return self._their_kickoff(obs, ta)
+            if self.tko_t0 is None:
+                self.tko_t0 = obs.tick
+            if obs.tick - self.tko_t0 < KOE:
+                return self._their_kickoff(obs, ta)
+            # a restart nobody takes expires after three seconds: from
+            # then on the ball on the spot is anybody's
+        else:
+            self.tko_t0 = None
         self.ko_t0 = None
 
         # ---- ball trajectory
@@ -1240,24 +1254,32 @@ class MyTeam(TeamController):
         t = obs.tick
         if self.ko_t0 is None:
             self.ko_t0 = t
+            kk = 2
+            if KON:
+                # the taker is whoever starts nearest the ball, so the kick
+                # goes before the restart expires; he and 2 swap jobs
+                kk = min(range(1, 5), key=lambda i: self.us[i][0] ** 2 + self.us[i][1] ** 2)
+            self.ko_k = kk
         el = t - self.ko_t0
+        kk = self.ko_k
         spots = [(-48.0, 0.0), (-25.0, 0.0), (-6.0, 0.0), (8.0, -18.0), (8.0, 18.0)]
         for i in range(5):
-            tx, ty = spots[i]
-            if i == 2:
+            r = 2 if i == kk else (kk if i == 2 else i)
+            tx, ty = spots[r]
+            if r == 2:
                 # walk to the ball, take it near the end
                 tx, ty = -1.5, 0.0
             pl[i] = self._run_to(self.us[i], tx, ty)
-        if el >= 50:
+        if el >= KO_EL:
             # strike from the spot using the standard evaluation
-            p = self.us[2]
+            p = self.us[kk]
             dx = -p[0]
             dy = -p[1]
             if dx * dx + dy * dy <= KR * KR and p[4] == 0:
                 self.traj = self._traj(0.0, 0.0, 0.0, 0.0)
-                act = self._on_ball(2, obs)
+                act = self._on_ball(kk, obs)
                 if act is not None:
-                    pl[2] = act
+                    pl[kk] = act
             else:
-                pl[2] = self._run_to(p, 0.0, 0.0, True)
+                pl[kk] = self._run_to(p, 0.0, 0.0, True)
         return ta
