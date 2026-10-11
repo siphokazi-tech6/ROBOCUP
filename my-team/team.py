@@ -1,4 +1,4 @@
-"""Athalia Mamba v107 - race-model football.
+"""Athalia Mamba v108 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
@@ -229,7 +229,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "107"
+    version = "108"
 
     def __init__(self):
         self.reset(0)
@@ -1096,7 +1096,9 @@ class MyTeam(TeamController):
             if gd > P['ball_far']:
                 targets = [last] + near + [cover] + far
             else:
-                targets = near + [last, cover] + far
+                # ball near our goal: hold the line from it to goal first,
+                # mark with whoever is left
+                targets = [last, cover] + near + far
             while len(targets) < 4:
                 targets.append((-35.0, 0.0))
         # assign in priority order: each target takes the nearest free player
