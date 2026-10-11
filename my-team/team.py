@@ -1,4 +1,4 @@
-"""Athalia Mamba v104 - race-model football.
+"""Athalia Mamba v105 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
@@ -222,11 +222,12 @@ ALLC = CANDS
 CANDS = CANDS[:int(P.get('ndirs', 16))]
 CREST = ALLC[len(CANDS):]
 DEEPX = P.get('deepx', -35.0)
+AX = 38.0
 
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "104"
+    version = "105"
 
     def __init__(self):
         self.reset(0)
@@ -903,6 +904,10 @@ class MyTeam(TeamController):
                         best = (kk, ux, uy, 'play')
         else:
             cands = CANDS
+            if bx > AX:
+                # near their goal the ball back across the box is often
+                # the only way through a packed defence: look at it too
+                cands = ALLC
             if k == 0 or bx < DEEPX:
                 # at the back every direction counts: a clearance may have
                 # to go sideways, or back across a fast ball
