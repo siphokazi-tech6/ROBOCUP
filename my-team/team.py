@@ -1,4 +1,4 @@
-"""Athalia Mamba v108 - race-model football.
+"""Athalia Mamba v109 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
@@ -91,7 +91,7 @@ HOLD = PlayerAction()
 
 P = dict(px=0.03, pz=0.04, py=0.06, mw=0.12, tw=0.004, m0=1.0, m1=0.0, cpen=0.3, drib=0.02,
          lose=1.5, dang=3.0, dead=0.5, shot_w=10.0,
-         mk_g=1.8, mk_b=0.8, mk_zone=30.0, ball_far=30.0,
+         mk_g=2.1, mk_b=0.8, mk_zone=30.0, ball_far=30.0,
          fwd_dx=18.0, fwd_y=12.0, space=0, sp_step=6.0, sp_lane=0.5, sp_x=0.1,
          sq=2.0, sqx=15.0, sqd=2.5)
 LSAFE_X = P.get('lmax2', -6.0)
@@ -229,7 +229,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "108"
+    version = "109"
 
     def __init__(self):
         self.reset(0)
