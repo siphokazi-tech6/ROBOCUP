@@ -1,4 +1,4 @@
-"""Athalia Mamba v106 - race-model football.
+"""Athalia Mamba v107 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
@@ -221,7 +221,7 @@ else:
 ALLC = CANDS
 CANDS = CANDS[:int(P.get('ndirs', 16))]
 CREST = ALLC[len(CANDS):]
-DEEPX = P.get('deepx', -35.0)
+DEEPX = -5.0
 AX = 38.0
 KA = 1
 KA_ADD = 0
@@ -229,7 +229,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "106"
+    version = "107"
 
     def __init__(self):
         self.reset(0)
