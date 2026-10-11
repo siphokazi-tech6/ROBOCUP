@@ -1,4 +1,4 @@
-"""Athalia Mamba v105 - race-model football.
+"""Athalia Mamba v106 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
@@ -223,11 +223,13 @@ CANDS = CANDS[:int(P.get('ndirs', 16))]
 CREST = ALLC[len(CANDS):]
 DEEPX = P.get('deepx', -35.0)
 AX = 38.0
+KA = 1
+KA_ADD = 0
 
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "105"
+    version = "106"
 
     def __init__(self):
         self.reset(0)
@@ -323,6 +325,7 @@ class MyTeam(TeamController):
         ti = [self._intercept(p, traj, False) for p in th]
         t_us = min(ui[1:])
         t_th = min(ti)
+        self.t_th_ = t_th
         chaser = 1 + ui[1:].index(t_us)
         # keeper comes for it only inside his box, and only if clearly first
         kn = min(ui[0], NT)
@@ -978,6 +981,14 @@ class MyTeam(TeamController):
                 tx, ty = traj[gn]
                 return self._run_to(p, tx, ty, True)
         # angle position: on the line from goal centre to ball, 2.5 units out
+        if KA and self.defending:
+            # they will have it first: square up to where they will strike
+            # it, not to where it is now
+            n = self.t_th_ + KA_ADD
+            if n > NT:
+                n = NT
+            if n > 0:
+                bx, by = traj[n]
         dx = bx - gx
         dy = by
         d = sqrt(dx * dx + dy * dy)
