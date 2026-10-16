@@ -1,8 +1,9 @@
-"""Athalia Mamba v111 - race-model football.
+"""Athalia Mamba v112 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%, and the kicker's
-own body knocking the ball on if he runs into it on the kick tick): shots at seven
+own body knocking the ball on if he runs into it on the kick tick, unless
+braking or stepping off the ball's line plays it better): shots at seven
 points of the goal mouth, and passes or touches to himself in the 16 most
 forward directions on a 10-degree ring (straight ahead out to about 75 degrees
 either side) at five speeds. The keeper, anyone in our last 15 units, and
@@ -230,7 +231,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "111"
+    version = "112"
 
     def __init__(self):
         self.reset(0)
@@ -611,6 +612,7 @@ class MyTeam(TeamController):
         """Roll a kick with the kicker running on along m: if his own body
         catches the ball on the kick tick it knocks it on (ball-player
         restitution 0.25), and the ball rolls on from there."""
+        self.hit = False
         p = self.us[k]
         pvx = 0.9 * p[2] + mx
         pvy = 0.9 * p[3] + my
@@ -639,6 +641,7 @@ class MyTeam(TeamController):
                 if vr < 0.0:
                     wx -= 1.25 * vr * nx
                     wy -= 1.25 * vr * ny
+                self.hit = True
                 s_ = sqrt(wx * wx + wy * wy)
                 sch2 = self._schedule(x, y, wx / s_, wy / s_, ours, theirs) if s_ > 1e-6 else None
                 return self._rollout(x, y, wx, wy, ours, theirs, k, sch2, 1)
@@ -842,39 +845,60 @@ class MyTeam(TeamController):
                 continue
             last = sp
             res = self._kroll(k, bx, by, ux * sp, uy * sp, ux, uy, ours, theirs, sch)
-            goal, ot, ox, oy, oid, tt, tx_, ty_ = res
-            if goal == 1:
-                v = 9.0
-            elif goal == -1:
-                v = -50.0
-            elif ot is not None and (tt is None or ot < tt):
-                m = (tt - ot) if tt is not None else 8
-                v = self._posval(ox, oy) + P['mw'] * min(m, 8) - P['tw'] * ot
-                if SQ and ox > SQX:
-                    q = self._shotq_real(ox, oy) if KQ else self._shotq(ox, oy)
-                    if q > 3.0:
-                        q = 3.0
-                    elif q < -3.0:
-                        q = -3.0
-                    v += SQ * q / 3.0
-                need = P['m0'] + P['m1'] * ot
-                if m <= need:
-                    v -= P['cpen'] * (1.0 + need - m) * 0.5
-                if oid == k:
-                    v += P['drib']
-            elif tt is not None and (ot is None or tt < ot):
-                v = -P['lose'] - self._danger(tx_, ty_) + 0.01 * tx_
-            else:
-                # dead heat / nobody
-                if ot is None:
-                    x_, y_ = bx, by
+            v = self._kval(res, k, bx, by)
+            if self.hit:
+                # his body would knock it on: see if braking, or stepping
+                # off the ball's line on his side, plays it better
+                p_ = self.us[k]
+                pv = sqrt(p_[2] * p_[2] + p_[3] * p_[3])
+                if (p_[0] - bx) * uy - (p_[1] - by) * ux >= 0.0:
+                    side = (uy, -ux)
                 else:
-                    x_, y_ = ox, oy
-                v = -P['dead'] + 0.5 * self._posval(x_, y_) - 0.5 * self._danger(x_, y_)
+                    side = (-uy, ux)
+                alts = ((-p_[2] / pv, -p_[3] / pv), side) if pv > 0.5 else (side,)
+                for mx_, my_ in alts:
+                    r2 = self._kroll(k, bx, by, ux * sp, uy * sp, mx_, my_, ours, theirs, sch)
+                    v2 = self._kval(r2, k, bx, by)
+                    if v2 > v + 1e-9:
+                        v = v2
+                        k_ = k_[:4] + (mx_, my_)
             if v > bv:
                 bv = v
                 bk = k_
         return bv, bk
+
+    def _kval(self, res, k, bx, by):
+        """Value of a rolled kick."""
+        goal, ot, ox, oy, oid, tt, tx_, ty_ = res
+        if goal == 1:
+            v = 9.0
+        elif goal == -1:
+            v = -50.0
+        elif ot is not None and (tt is None or ot < tt):
+            m = (tt - ot) if tt is not None else 8
+            v = self._posval(ox, oy) + P['mw'] * min(m, 8) - P['tw'] * ot
+            if SQ and ox > SQX:
+                q = self._shotq_real(ox, oy) if KQ else self._shotq(ox, oy)
+                if q > 3.0:
+                    q = 3.0
+                elif q < -3.0:
+                    q = -3.0
+                v += SQ * q / 3.0
+            need = P['m0'] + P['m1'] * ot
+            if m <= need:
+                v -= P['cpen'] * (1.0 + need - m) * 0.5
+            if oid == k:
+                v += P['drib']
+        elif tt is not None and (ot is None or tt < ot):
+            v = -P['lose'] - self._danger(tx_, ty_) + 0.01 * tx_
+        else:
+            # dead heat / nobody
+            if ot is None:
+                x_, y_ = bx, by
+            else:
+                x_, y_ = ox, oy
+            v = -P['dead'] + 0.5 * self._posval(x_, y_) - 0.5 * self._danger(x_, y_)
+        return v
 
     def _on_ball(self, k, obs):
         bx, by = obs.ball.position
@@ -978,6 +1002,8 @@ class MyTeam(TeamController):
             return None
         k_, ux, uy, kind = best
         # run with the ball's new direction
+        if len(k_) > 4:
+            ux, uy = k_[4], k_[5]
         return PlayerAction(movement=(ux, uy), kick_direction=(k_[0], k_[1]), kick_power=k_[3])
 
     @staticmethod
