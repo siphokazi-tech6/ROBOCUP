@@ -1,7 +1,8 @@
-"""Athalia Mamba v110 - race-model football.
+"""Athalia Mamba v111 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
-own ball physics (friction 0.985 a tick, walls returning 75%): shots at seven
+own ball physics (friction 0.985 a tick, walls returning 75%, and the kicker's
+own body knocking the ball on if he runs into it on the kick tick): shots at seven
 points of the goal mouth, and passes or touches to himself in the 16 most
 forward directions on a 10-degree ring (straight ahead out to about 75 degrees
 either side) at five speeds. The keeper, anyone in our last 15 units, and
@@ -229,7 +230,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "110"
+    version = "111"
 
     def __init__(self):
         self.reset(0)
@@ -606,8 +607,46 @@ class MyTeam(TeamController):
         st.sort()
         return so, st
 
-    def _rollout(self, x, y, vx, vy, ours, theirs, kicker, sched=None):
-        """Roll the ball; return (goal, our_tick, our_x, our_y, our_id, their_tick, their_x, their_y)."""
+    def _kroll(self, k, bx, by, vx, vy, mx, my, ours, theirs, sch):
+        """Roll a kick with the kicker running on along m: if his own body
+        catches the ball on the kick tick it knocks it on (ball-player
+        restitution 0.25), and the ball rolls on from there."""
+        p = self.us[k]
+        pvx = 0.9 * p[2] + mx
+        pvy = 0.9 * p[3] + my
+        s2 = pvx * pvx + pvy * pvy
+        if s2 > 64.0:
+            f = 8.0 / sqrt(s2)
+            pvx *= f
+            pvy *= f
+        px = p[0] + pvx * DT
+        py = p[1] + pvy * DT
+        x = bx + vx * DT
+        y = by + vy * DT
+        if -BXM < x < BXM and -BYM < y < BYM:
+            dx = x - px
+            dy = y - py
+            d2 = dx * dx + dy * dy
+            if 1e-18 < d2 < 2.1025:
+                d = sqrt(d2)
+                nx = dx / d
+                ny = dy / d
+                x = px + nx * 1.45
+                y = py + ny * 1.45
+                wx = vx * FR
+                wy = vy * FR
+                vr = (wx - pvx) * nx + (wy - pvy) * ny
+                if vr < 0.0:
+                    wx -= 1.25 * vr * nx
+                    wy -= 1.25 * vr * ny
+                s_ = sqrt(wx * wx + wy * wy)
+                sch2 = self._schedule(x, y, wx / s_, wy / s_, ours, theirs) if s_ > 1e-6 else None
+                return self._rollout(x, y, wx, wy, ours, theirs, k, sch2, 1)
+        return self._rollout(bx, by, vx, vy, ours, theirs, k, sch)
+
+    def _rollout(self, x, y, vx, vy, ours, theirs, kicker, sched=None, n0=0):
+        """Roll the ball; return (goal, our_tick, our_x, our_y, our_id, their_tick, their_x, their_y).
+        (x, y, vx, vy) is the ball at tick n0."""
         _lDT = DT
         _lBYM = BYM
         _lBXM = BXM
@@ -635,7 +674,7 @@ class MyTeam(TeamController):
         nso = len(so)
         nst = len(st)
         flat = True
-        for n in range(1, _lNT + 1):
+        for n in range(n0 + 1, _lNT + 1):
             x += vx * _lDT
             y += vy * _lDT
             if y > _lBYM:
@@ -802,7 +841,7 @@ class MyTeam(TeamController):
             if sp == last:
                 continue
             last = sp
-            res = self._rollout(bx, by, ux * sp, uy * sp, ours, theirs, k, sch)
+            res = self._kroll(k, bx, by, ux * sp, uy * sp, ux, uy, ours, theirs, sch)
             goal, ot, ox, oy, oid, tt, tx_, ty_ = res
             if goal == 1:
                 v = 9.0
@@ -862,7 +901,7 @@ class MyTeam(TeamController):
                     continue
                 sp = k_[2]
                 sch = self._schedule(bx, by, ux, uy, ours, theirs) if PRUNE else None
-                res = self._rollout(bx, by, ux * sp, uy * sp, ours, theirs, k, sch)
+                res = self._kroll(k, bx, by, ux * sp, uy * sp, ux, uy, ours, theirs, sch)
                 if res[0] == 1:
                     v = P['shot_w'] - 0.02 * d
                     if v > bestv:
