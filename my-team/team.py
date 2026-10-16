@@ -1,18 +1,20 @@
-"""Athalia Mamba v115 - race-model football.
+"""Athalia Mamba v116 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%, and the kicker's
 own body knocking the ball on if he runs into it on the kick tick, unless
 braking or stepping off the ball's line plays it better): shots at seven
 points of the goal mouth (against a wall of men on their line, also into the
-corners and through every gap between them), and passes or touches to himself in the 16 most
+corners and through every gap between them, allowing that the men on the line
+cannot react before the tick after the strike), and passes or touches to himself in the 16 most
 forward directions on a 10-degree ring (straight ahead out to about 75 degrees
 either side) at five speeds. The keeper, anyone in our last 15 units, and
 anyone with nothing playable forward look round the whole ring instead. Every
 player on the pitch is raced to each ball with the engine's own movement model
 (v' = 0.9 v + a, capped at 8). Our own players get a one-tick reaction delay
-and half a unit less reach, so we only count passes we really collect. The
-kick whose ball we win first, furthest forward and with the most time to
+and 0.3 of a unit less reach, so we only count passes we really collect. The
+kick whose ball we win first, furthest forward (out wide by their byline
+counts as less forward the nearer the corner) and with the most time to
 spare, is the one played; a ball won in the attacking third earns extra credit
 for how open a first-time shot from there would be against a keeper on his
 line. A shot is taken only when no opponent, the keeper included, can reach
@@ -100,7 +102,7 @@ P = dict(px=0.03, pz=0.04, py=0.06, mw=0.12, tw=0.004, m0=1.0, m1=0.0, cpen=0.3,
          sq=2.0, sqx=15.0, sqd=2.5)
 LSAFE_X = P.get('lmax2', -6.0)
 ODEL = int(P.get('odel', 1))
-ORAD = P.get('orad', 0.5)
+ORAD = P.get('orad', 0.3)
 KO_R = 10.9
 TDEL = int(P.get('tdel', 0))
 TDEL_DEFAULT = TDEL
@@ -121,6 +123,20 @@ for _n in range(NT + 2):
     CT.append(C[_nt])
     RT2.append((R0[_nt] + KR) ** 2)
     LT2.append((0.4 * _nt + KR) ** 2)
+# for shots at a wall of men on their line: they cannot react to the strike
+# before the tick after it
+CTS = []
+RT2S = []
+LT2S = []
+for _n in range(NT + 2):
+    _nt = _n - 1 if _n > 1 else 0
+    CTS.append(C[_nt])
+    RT2S.append((R0[_nt] + KR) ** 2)
+    LT2S.append((0.4 * _nt + KR) ** 2)
+# out wide by their byline is a dead end, not progress
+CORNER_X = 40.0
+CORNER_Y = 16.0
+CORNER_K = 0.5
 RS_DEL = int(P.get('rs_del', 0))
 RS_W = P.get('rs_w', 3.0)
 RS_DIST = P.get('rs_dist', 30.0)
@@ -238,7 +254,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "115"
+    version = "116"
 
     def __init__(self):
         self.reset(0)
@@ -640,7 +656,7 @@ class MyTeam(TeamController):
         st.sort()
         return so, st
 
-    def _kroll(self, k, bx, by, vx, vy, mx, my, ours, theirs, sch, free=True):
+    def _kroll(self, k, bx, by, vx, vy, mx, my, ours, theirs, sch, free=True, tt2=None):
         """Roll a kick with the kicker running on along m: if his own body
         catches the ball on the kick tick it knocks it on (ball-player
         restitution 0.25), and the ball rolls on from there."""
@@ -676,12 +692,12 @@ class MyTeam(TeamController):
                 self.hit = True
                 s_ = sqrt(wx * wx + wy * wy)
                 sch2 = self._schedule(x, y, wx / s_, wy / s_, ours, theirs) if s_ > 1e-6 else None
-                return self._rollout(x, y, wx, wy, ours, theirs, k, sch2, 1)
+                return self._rollout(x, y, wx, wy, ours, theirs, k, sch2, 1, tt2)
         if not free:
             return None
-        return self._rollout(bx, by, vx, vy, ours, theirs, k, sch)
+        return self._rollout(bx, by, vx, vy, ours, theirs, k, sch, 0, tt2)
 
-    def _rollout(self, x, y, vx, vy, ours, theirs, kicker, sched=None, n0=0):
+    def _rollout(self, x, y, vx, vy, ours, theirs, kicker, sched=None, n0=0, tt2=None):
         """Roll the ball; return (goal, our_tick, our_x, our_y, our_id, their_tick, their_x, their_y).
         (x, y, vx, vy) is the ball at tick n0."""
         _lDT = DT
@@ -692,6 +708,8 @@ class MyTeam(TeamController):
         _lLO2 = LO2
         _lRT2 = RT2
         _lLT2 = LT2
+        if tt2 is not None:
+            _lRT2, _lLT2 = tt2
         _lNT = NT
         ot = None
         tt = None
@@ -790,6 +808,8 @@ class MyTeam(TeamController):
     @staticmethod
     def _posval(x, y):
         ay = y if y > 0 else -y
+        if ay > CORNER_Y and x > CORNER_X:
+            x = CORNER_X - CORNER_K * (x - CORNER_X)
         v = P['px'] * x
         if x > 20.0:
             v += P['pz'] * (x - 20.0) - P['py'] * ay * (x - 20.0) / 30.0
@@ -974,6 +994,11 @@ class MyTeam(TeamController):
                             ys.append(yp)
                 ys.sort()
                 aims = GYS + WYS + tuple((a + b) * 0.5 for a, b in zip(ys, ys[1:]) if b - a > 0.8)
+                ths = [(q[0], q[1], q[2], q[3], 0, [q[0] + q[2] * c for c in CTS], [q[1] + q[3] * c for c in CTS]) for q in self.th]
+                tts = (RT2S, LT2S)
+            else:
+                ths = theirs
+                tts = None
             for gy in aims:
                 dx = HW - bx
                 dy = gy - by
@@ -985,7 +1010,7 @@ class MyTeam(TeamController):
                     continue
                 sp = k_[2]
                 sch = self._schedule(bx, by, ux, uy, ours, theirs) if PRUNE else None
-                res = self._kroll(k, bx, by, ux * sp, uy * sp, ux, uy, ours, theirs, sch)
+                res = self._kroll(k, bx, by, ux * sp, uy * sp, ux, uy, ours, ths, sch, True, tts)
                 if res[0] == 1:
                     v = P['shot_w'] - 0.02 * d
                     if v > bestv:
