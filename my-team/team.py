@@ -1,10 +1,11 @@
-"""Athalia Mamba v112 - race-model football.
+"""Athalia Mamba v115 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%, and the kicker's
 own body knocking the ball on if he runs into it on the kick tick, unless
 braking or stepping off the ball's line plays it better): shots at seven
-points of the goal mouth, and passes or touches to himself in the 16 most
+points of the goal mouth (against a wall of men on their line, also into the
+corners and through every gap between them), and passes or touches to himself in the 16 most
 forward directions on a 10-degree ring (straight ahead out to about 75 degrees
 either side) at five speeds. The keeper, anyone in our last 15 units, and
 anyone with nothing playable forward look round the whole ring instead. Every
@@ -20,7 +21,8 @@ the ball before it crosses the line.
 Off the ball: the player who can reach a loose ball first, counting from when
 his kick cooldown ends, goes to meet it, so a dribbler runs alongside his ball
 instead of into it. When they have it, the player who can get goal-side of the
-ball fastest presses it. One man always stays between the ball and our goal.
+ball fastest presses it. One man always stays between the ball and our goal,
+and while we have it deep in our half the forwards wait short of halfway.
 Opponents near our goal are marked, in order of danger, goal-side of where
 they will be in about a second, so a runner into the box is not left behind.
 The keeper narrows the angle on the line from the ball to the middle of the
@@ -29,9 +31,9 @@ kickoff we stand in the passing lanes to their forwards and steer round the
 centre circle, so we never give away a foul.
 
 The search is a fixed set of candidates, so the team decides the same way on
-any machine. A 12 ms clock, started when the decision starts, only trims the
-widest-angle candidates on the rare tick a slow server would otherwise push
-the decision past the 20 ms deadline.
+any machine. A 12 ms clock, started when the decision starts and checked
+between every rolled kick, only trims the widest-angle candidates when a slow
+or busy server would otherwise push the decision towards the 20 ms deadline.
 """
 
 from math import sqrt, atan2, cos, sin
@@ -137,6 +139,11 @@ KO_EL = 50
 PUSH = 0
 BEHIND = P.get('behind', 0.0)
 GYS = tuple(P.get('gys', (-6.2, -4.6, -2.3, 0.0, 2.3, 4.6, 6.2)))
+# against a wall of men on their goal line: aim right into the corners too (a
+# goal counts with the ball's centre inside |y| < 7) and through every gap
+WYS = (-6.75, 6.75)
+WALL_X = 45.0
+WALL_N = 3
 SPEEDS = tuple(None if s is None or s < 0 else s for s in P.get('speeds', (None, 15.0, 10.0, 8.5, 6.5)))
 TWO = int(P.get('two', 0))
 TOPK = int(P.get('topk', 3))
@@ -231,7 +238,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "112"
+    version = "115"
 
     def __init__(self):
         self.reset(0)
@@ -245,6 +252,8 @@ class MyTeam(TeamController):
         self.tk = 0
         self.full_t = -99
         self.cache = None
+        self.wall = False
+        self.gm = 0.3
 
     def initial_formation(self, f):
         return [(-48.0, 0.0), (-30.0, -8.0), (-30.0, 8.0), (-11.0, -14.0), (-11.0, 14.0)]
@@ -298,6 +307,12 @@ class MyTeam(TeamController):
         th = [(p.position[0], p.position[1], p.velocity[0], p.velocity[1], p.kick_cooldown_ticks) for p in opp]
         self.us = us
         self.th = th
+        nw = 0
+        for q in th:
+            if q[0] > WALL_X:
+                nw += 1
+        self.wall = nw >= WALL_N
+        self.gm = 0.1 if self.wall else 0.3
         kq_ = max(th, key=lambda q: q[0])
         self._kpos = (kq_[0], kq_[1])
 
@@ -323,10 +338,23 @@ class MyTeam(TeamController):
         self.traj = traj
 
         # ---- intercept ticks for everyone
-        ui = [self._intercept(p, traj, i == 0) for i, p in enumerate(us)]
-        ti = [self._intercept(p, traj, False) for p in th]
-        t_us = min(ui[1:])
-        t_th = min(ti)
+        # only the first to each ball matters: a player is searched no
+        # further than the best tick found so far
+        ui = [0, 0, 0, 0, 0]
+        t_us = NT + 5
+        for i in range(1, 5):
+            n = self._intercept(us[i], traj, False, t_us)
+            ui[i] = n
+            if n < t_us:
+                t_us = n
+        ui[0] = self._intercept(us[0], traj, True, t_us - 2)
+        ti = []
+        t_th = NT + 5
+        for p in th:
+            n = self._intercept(p, traj, False, t_th)
+            ti.append(n)
+            if n < t_th:
+                t_th = n
         self.t_th_ = t_th
         chaser = 1 + ui[1:].index(t_us)
         # keeper comes for it only inside his box, and only if clearly first
@@ -432,19 +460,23 @@ class MyTeam(TeamController):
             app((x, y))
         return out
 
-    def _intercept(self, p, traj, keeper):
-        """First tick n at which the player can be within kick range of the ball."""
+    def _intercept(self, p, traj, keeper, nmax=NT + 5):
+        """First tick n before nmax at which the player can be within kick
+        range of the ball (NT + 5 if none)."""
         px, py, vx, vy, cd = p
         r = KR
         n0 = cd if (ICD and cd) else 0
+        top = nmax - 1 if nmax <= NT else NT
         # nobody can be in range before he could have run the gap the ball's
         # roll leaves him (bounces and the goal only shorten the ball's
         # distance from where it started): skip those ticks outright
         bx0, by0 = traj[0]
         need = sqrt((bx0 - px) ** 2 + (by0 - py) ** 2) - r - 1e-6
+        if n0 > top:
+            return NT + 5
         if need > 0.4 * n0 + self.tspd * SPAN[n0]:
             sp = self.tspd
-            if 0.4 * NT + sp * SPAN[NT] < need:
+            if 0.4 * top + sp * SPAN[top] < need:
                 return NT + 5
             lo = n0
             hi = NT
@@ -481,7 +513,7 @@ class MyTeam(TeamController):
         ILIM = _ILIM
         bstep = self.tspd * DT
         n = n0
-        while n <= NT:
+        while n <= top:
             tx, ty = traj[n]
             ex = tx - px
             ey = ty - py
@@ -608,7 +640,7 @@ class MyTeam(TeamController):
         st.sort()
         return so, st
 
-    def _kroll(self, k, bx, by, vx, vy, mx, my, ours, theirs, sch):
+    def _kroll(self, k, bx, by, vx, vy, mx, my, ours, theirs, sch, free=True):
         """Roll a kick with the kicker running on along m: if his own body
         catches the ball on the kick tick it knocks it on (ball-player
         restitution 0.25), and the ball rolls on from there."""
@@ -645,6 +677,8 @@ class MyTeam(TeamController):
                 s_ = sqrt(wx * wx + wy * wy)
                 sch2 = self._schedule(x, y, wx / s_, wy / s_, ours, theirs) if s_ > 1e-6 else None
                 return self._rollout(x, y, wx, wy, ours, theirs, k, sch2, 1)
+        if not free:
+            return None
         return self._rollout(bx, by, vx, vy, ours, theirs, k, sch)
 
     def _rollout(self, x, y, vx, vy, ours, theirs, kicker, sched=None, n0=0):
@@ -689,7 +723,7 @@ class MyTeam(TeamController):
                 vy = -0.75 * vy
                 flat = False
             if x > _lBXM:
-                if -_lGH + 0.3 < y < _lGH - 0.3 and tt is None:
+                if -_lGH + self.gm < y < _lGH - self.gm and tt is None:
                     return (1, ot, ox, oy, oid, tt, tx_, ty_)
                 x = 2 * _lBXM - x
                 vx = -0.75 * vx
@@ -836,7 +870,10 @@ class MyTeam(TeamController):
         bk = None
         sch = self._schedule(bx, by, ux, uy, ours, theirs) if PRUNE else None
         last = -1.0
+        t0 = self.t_act
         for want in sps:
+            if bk is not None and _clock() - t0 > BUDGET:
+                break
             k_ = _strike(bvx, bvy, ux, uy, want)
             if k_ is None:
                 continue
@@ -846,7 +883,7 @@ class MyTeam(TeamController):
             last = sp
             res = self._kroll(k, bx, by, ux * sp, uy * sp, ux, uy, ours, theirs, sch)
             v = self._kval(res, k, bx, by)
-            if self.hit:
+            if self.hit and _clock() - t0 <= BUDGET:
                 # his body would knock it on: see if braking, or stepping
                 # off the ball's line on his side, plays it better
                 p_ = self.us[k]
@@ -856,9 +893,17 @@ class MyTeam(TeamController):
                 else:
                     side = (-uy, ux)
                 alts = ((-p_[2] / pv, -p_[3] / pv), side) if pv > 0.5 else (side,)
+                fv = None
                 for mx_, my_ in alts:
-                    r2 = self._kroll(k, bx, by, ux * sp, uy * sp, mx_, my_, ours, theirs, sch)
-                    v2 = self._kval(r2, k, bx, by)
+                    r2 = self._kroll(k, bx, by, ux * sp, uy * sp, mx_, my_, ours, theirs, sch, False)
+                    if r2 is None:
+                        # clear of him: the ball goes as kicked, the same
+                        # for any run that misses it
+                        if fv is None:
+                            fv = self._kval(self._rollout(bx, by, ux * sp, uy * sp, ours, theirs, k, sch), k, bx, by)
+                        v2 = fv
+                    else:
+                        v2 = self._kval(r2, k, bx, by)
                     if v2 > v + 1e-9:
                         v = v2
                         k_ = k_[:4] + (mx_, my_)
@@ -914,7 +959,22 @@ class MyTeam(TeamController):
         # shots
         gdx = HW - bx
         if gdx < 40.0:
-            for gy in GYS:
+            aims = GYS
+            if self.wall:
+                # where each man ahead of the ball stands, seen from the ball
+                # on their goal line: the gaps between them are the holes
+                lo = -GH + 0.1
+                hi = GH - 0.1
+                ys = [lo, hi]
+                for q in self.th:
+                    ddx = q[0] - bx
+                    if ddx > 0.5:
+                        yp = by + (q[1] - by) * gdx / ddx
+                        if lo < yp < hi:
+                            ys.append(yp)
+                ys.sort()
+                aims = GYS + WYS + tuple((a + b) * 0.5 for a, b in zip(ys, ys[1:]) if b - a > 0.8)
+            for gy in aims:
                 dx = HW - bx
                 dy = gy - by
                 d = sqrt(dx * dx + dy * dy)
@@ -1124,7 +1184,9 @@ class MyTeam(TeamController):
             last = (-HW + (-gx) / gd * k, (-gy) / gd * k)
         if self.attack:
             fx = min(bx + P['fwd_dx'], 40.0)
-            fx = max(fx, 5.0)
+            # deep in our half they come back short of halfway, near enough
+            # to help if we lose it
+            fx = max(fx, -5.0)
             f1 = (fx, -P['fwd_y'])
             f2 = (fx, P['fwd_y'])
             if P['space']:
