@@ -1,4 +1,4 @@
-"""Athalia Mamba v116 - race-model football.
+"""Athalia Mamba v117 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%, and the kicker's
@@ -23,7 +23,9 @@ the ball before it crosses the line.
 Off the ball: the player who can reach a loose ball first, counting from when
 his kick cooldown ends, goes to meet it, so a dribbler runs alongside his ball
 instead of into it. When they have it, the player who can get goal-side of the
-ball fastest presses it. One man always stays between the ball and our goal,
+ball fastest presses it. One man always stays between the ball and our goal
+(near our goal he and the cover take the lanes to the two corners, the keeper
+the middle),
 and while we have it deep in our half the forwards wait short of halfway.
 Opponents near our goal are marked, in order of danger, goal-side of where
 they will be in about a second, so a runner into the box is not left behind.
@@ -254,7 +256,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "116"
+    version = "117"
 
     def __init__(self):
         self.reset(0)
@@ -1243,6 +1245,25 @@ class MyTeam(TeamController):
                 marks.append((dg, (mx, my)))
             marks.sort()
             cover = (bx + gx / gd * 7.0, by + gy / gd * 7.0)
+            if gd < 30.0:
+                # near our goal the keeper holds the middle: the cover takes
+                # the lane from the ball to the far corner and the last man
+                # the lane to the near one, so a shot has nowhere to go
+                yc = -4.5 if by >= 0.0 else 4.5
+                cx_ = -HW - bx
+                cy_ = yc - by
+                cd = sqrt(cx_ * cx_ + cy_ * cy_) or 1.0
+                cover = (bx + cx_ / cd * 7.0, by + cy_ / cd * 7.0)
+                yl = -yc
+                lx_ = bx + HW
+                ly_ = by - yl
+                ld = sqrt(lx_ * lx_ + ly_ * ly_) or 1.0
+                kk = ld * 0.45
+                if kk < 6.0:
+                    kk = 6.0
+                if kk > ld - 4.0:
+                    kk = max(2.5, ld - 4.0)
+                last = (-HW + lx_ / ld * kk, yl + ly_ / ld * kk)
             near = [m for d_, m in marks if d_ < P['mk_zone']]
             far = [m for d_, m in marks if d_ >= P['mk_zone']]
             if gd > P['ball_far']:
