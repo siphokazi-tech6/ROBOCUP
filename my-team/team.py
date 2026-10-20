@@ -1,4 +1,4 @@
-"""Athalia Mamba v117 - race-model football.
+"""Athalia Mamba v118 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%, and the kicker's
@@ -13,8 +13,9 @@ anyone with nothing playable forward look round the whole ring instead. Every
 player on the pitch is raced to each ball with the engine's own movement model
 (v' = 0.9 v + a, capped at 8). Our own players get a one-tick reaction delay
 and 0.3 of a unit less reach, so we only count passes we really collect. The
-kick whose ball we win first, furthest forward (out wide by their byline
-counts as less forward the nearer the corner) and with the most time to
+kick whose ball we win first, furthest forward (out wide in their third
+counts for less the wider it is, and inside 14 units of their byline less
+forward the nearer the corner) and with the most time to
 spare, is the one played; a ball won in the attacking third earns extra credit
 for how open a first-time shot from there would be against a keeper on his
 line. A shot is taken only when no opponent, the keeper included, can reach
@@ -97,7 +98,7 @@ for _n in range(1, NT + 2):
 
 HOLD = PlayerAction()
 
-P = dict(px=0.03, pz=0.04, py=0.06, mw=0.12, tw=0.004, m0=1.0, m1=0.0, cpen=0.3, drib=0.02,
+P = dict(px=0.03, pz=0.04, py=0.09, mw=0.12, tw=0.004, m0=1.0, m1=0.0, cpen=0.3, drib=0.02,
          lose=1.5, dang=3.0, dead=0.5, shot_w=10.0,
          mk_g=1.8, mk_b=0.8, mk_zone=30.0, ball_far=30.0,
          fwd_dx=18.0, fwd_y=12.0, space=0, sp_step=6.0, sp_lane=0.5, sp_x=0.1,
@@ -136,8 +137,8 @@ for _n in range(NT + 2):
     RT2S.append((R0[_nt] + KR) ** 2)
     LT2S.append((0.4 * _nt + KR) ** 2)
 # out wide by their byline is a dead end, not progress
-CORNER_X = 40.0
-CORNER_Y = 16.0
+CORNER_X = 36.0
+CORNER_Y = 14.0
 CORNER_K = 0.5
 RS_DEL = int(P.get('rs_del', 0))
 RS_W = P.get('rs_w', 3.0)
@@ -256,7 +257,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "117"
+    version = "118"
 
     def __init__(self):
         self.reset(0)
