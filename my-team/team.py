@@ -1,4 +1,4 @@
-"""Athalia Mamba v121 - race-model football.
+"""Athalia Mamba v122 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%, and the kicker's
@@ -45,9 +45,6 @@ The search is a fixed set of candidates, so the team decides the same way on
 any machine. A 12 ms clock, started when the decision starts and checked
 between every rolled kick, only trims the widest-angle candidates when a slow
 or busy server would otherwise push the decision towards the 20 ms deadline.
-On a tick when nothing has been kicked since the last plan and none of ours
-can play the ball, the plan from the tick before is kept instead of worked out
-again.
 """
 
 from math import sqrt, atan2, cos, sin
@@ -154,7 +151,7 @@ RS_W = P.get('rs_w', 3.0)
 RS_DIST = P.get('rs_dist', 30.0)
 CH_T = P.get('ch_t', 0.5)
 ICD = int(P.get('icd', 1))
-SKIP = int(P.get('skip', 2))
+SKIP = int(P.get('skip', 1))
 ISTEP = int(P.get('istep', 1))
 KRC = KR * KR
 PRUNE = int(P.get('prune', 1))
@@ -275,7 +272,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "121"
+    version = "122"
 
     def __init__(self):
         self.reset(0)
