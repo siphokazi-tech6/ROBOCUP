@@ -1,4 +1,4 @@
-"""Athalia Mamba v123 - race-model football.
+"""Athalia Mamba v124 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%, and the kicker's
@@ -124,6 +124,7 @@ LO2 = []
 CT = []
 RT2 = []
 LT2 = []
+LT1 = []
 for _n in range(NT + 2):
     _no = _n - ODEL if _n > ODEL else 0
     CO.append(C[_no])
@@ -133,16 +134,19 @@ for _n in range(NT + 2):
     CT.append(C[_nt])
     RT2.append((R0[_nt] + KR) ** 2)
     LT2.append((0.4 * _nt + KR) ** 2)
+    LT1.append(0.4 * _nt + KR)
 # for shots at a wall of men on their line: they cannot react to the strike
 # before the tick after it
 CTS = []
 RT2S = []
 LT2S = []
+LT1S = []
 for _n in range(NT + 2):
     _nt = _n - 1 if _n > 1 else 0
     CTS.append(C[_nt])
     RT2S.append((R0[_nt] + KR) ** 2)
     LT2S.append((0.4 * _nt + KR) ** 2)
+    LT1S.append(0.4 * _nt + KR)
 # out wide by their byline is a dead end, not progress
 CORNER_X = 36.0
 CORNER_Y = 14.0
@@ -158,6 +162,11 @@ KRC = KR * KR
 PRUNE = int(P.get('prune', 1))
 SQ = P['sq']
 SQX = P['sqx']
+_PX, _PZ, _PY = P['px'], P['pz'], P['py']
+_MW, _TW, _M0, _M1, _CPEN, _DRIB = P['mw'], P['tw'], P['m0'], P['m1'], P['cpen'], P['drib']
+_LOSE, _DANG, _DEAD = P['lose'], P['dang'], P['dead']
+_MKG, _MKB, _MKZ, _BFAR = P['mk_g'], P['mk_b'], P['mk_zone'], P['ball_far']
+_FWDDX, _FWDY = P['fwd_dx'], P['fwd_y']
 KQ = 1
 KOE = 62       # ticks before an untaken restart of theirs counts as expired
 KON = 1        # our kickoff: taken by whoever starts nearest the ball ...
@@ -273,7 +282,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "123"
+    version = "124"
 
     def __init__(self):
         self.reset(0)
@@ -338,8 +347,16 @@ class MyTeam(TeamController):
         bvx, bvy = ball.velocity
         mine = obs.my_players
         opp = obs.opponents
-        us = [(p.position[0], p.position[1], p.velocity[0], p.velocity[1], p.kick_cooldown_ticks) for p in mine]
-        th = [(p.position[0], p.position[1], p.velocity[0], p.velocity[1], p.kick_cooldown_ticks) for p in opp]
+        us = []
+        for p in mine:
+            q = p.position
+            w = p.velocity
+            us.append((q[0], q[1], w[0], w[1], p.kick_cooldown_ticks))
+        th = []
+        for p in opp:
+            q = p.position
+            w = p.velocity
+            th.append((q[0], q[1], w[0], w[1], p.kick_cooldown_ticks))
         self.us = us
         self.th = th
         nw = 0
@@ -468,6 +485,15 @@ class MyTeam(TeamController):
         dt = DT
         b2y = 2 * BYM
         b2x = 2 * BXM
+        if (vx or vy) and (x if x > 0 else -x) + (vx if vx > 0 else -vx) * 3.34 < bxm and (y if y > 0 else -y) + (vy if vy > 0 else -vy) * 3.34 < bym:
+            # it stops short of every wall (its whole roll is under 3.34 v)
+            for n in range(NT + 1):
+                x += vx * dt
+                y += vy * dt
+                vx *= fr
+                vy *= fr
+                app((x, y))
+            return out
         for n in range(NT + 1):
             if vx == 0.0 and vy == 0.0:
                 # at rest (dead ball, or stopped in a goal): it stays put
@@ -732,8 +758,10 @@ class MyTeam(TeamController):
         _lLO2 = LO2
         _lRT2 = RT2
         _lLT2 = LT2
+        _lLT1 = LT1
         if tt2 is not None:
             _lRT2, _lLT2 = tt2
+            _lLT1 = LT1S
         _lNT = NT
         ot = None
         tt = None
@@ -827,6 +855,26 @@ class MyTeam(TeamController):
                 break
             if tt is not None and n >= tt + 8:
                 break
+            if tt is not None:
+                if ot is None and x - 8.0 * (vx if vx > 0.0 else -vx) * _lDT > -_lBXM:
+                    # theirs first, and it cannot roll into our goal before
+                    # the roll ends: when (or if) we get there no longer counts
+                    break
+            elif ot == n and x + 8.0 * (vx if vx > 0.0 else -vx) * _lDT < _lBXM:
+                # ours first, and it cannot reach their goal: if none of
+                # theirs can get to it in the next 8 ticks either, the
+                # time to spare is the full 8 and the roll is done
+                lim = _lLT1[n] + 8.0 * (0.4 + sqrt(vx * vx + vy * vy) * _lDT)
+                lim *= lim
+                far = True
+                for e in theirs:
+                    ex = x - e[0]
+                    ey = y - e[1]
+                    if ex * ex + ey * ey <= lim:
+                        far = False
+                        break
+                if far:
+                    break
         return (0, ot, ox, oy, oid, tt, tx_, ty_)
 
     @staticmethod
@@ -834,9 +882,9 @@ class MyTeam(TeamController):
         ay = y if y > 0 else -y
         if ay > CORNER_Y and x > CORNER_X:
             x = CORNER_X - CORNER_K * (x - CORNER_X)
-        v = P['px'] * x
+        v = _PX * x
         if x > 20.0:
-            v += P['pz'] * (x - 20.0) - P['py'] * ay * (x - 20.0) / 30.0
+            v += _PZ * (x - 20.0) - _PY * ay * (x - 20.0) / 30.0
         return v
 
     def _shotq_real(self, x, y):
@@ -906,7 +954,8 @@ class MyTeam(TeamController):
     def _danger(x, y):
         ay = y if y > 0 else -y
         d = sqrt((x + HW) ** 2 + ay * ay)
-        return P['dang'] * max(0.0, 1.0 - d / 45.0)
+        w = 1.0 - d / 45.0
+        return _DANG * (w if w > 0.0 else 0.0)
 
     def _evaldir(self, k, bx, by, bvx, bvy, ux, uy, sps, ours, theirs):
         """Best value of a kick along u over the given speeds: (value, kick)."""
@@ -965,7 +1014,7 @@ class MyTeam(TeamController):
             v = -50.0
         elif ot is not None and (tt is None or ot < tt):
             m = (tt - ot) if tt is not None else 8
-            v = self._posval(ox, oy) + P['mw'] * min(m, 8) - P['tw'] * ot
+            v = self._posval(ox, oy) + _MW * (m if m < 8 else 8) - _TW * ot
             if SQ and ox > SQX:
                 q = self._shotq_real(ox, oy) if KQ else self._shotq(ox, oy)
                 if q > 3.0:
@@ -973,20 +1022,20 @@ class MyTeam(TeamController):
                 elif q < -3.0:
                     q = -3.0
                 v += SQ * q / 3.0
-            need = P['m0'] + P['m1'] * ot
+            need = _M0 + _M1 * ot
             if m <= need:
-                v -= P['cpen'] * (1.0 + need - m) * 0.5
+                v -= _CPEN * (1.0 + need - m) * 0.5
             if oid == k:
-                v += P['drib']
+                v += _DRIB
         elif tt is not None and (ot is None or tt < ot):
-            v = -P['lose'] - self._danger(tx_, ty_) + 0.01 * tx_
+            v = -_LOSE - self._danger(tx_, ty_) + 0.01 * tx_
         else:
             # dead heat / nobody
             if ot is None:
                 x_, y_ = bx, by
             else:
                 x_, y_ = ox, oy
-            v = -P['dead'] + 0.5 * self._posval(x_, y_) - 0.5 * self._danger(x_, y_)
+            v = -_DEAD + 0.5 * self._posval(x_, y_) - 0.5 * self._danger(x_, y_)
         return v
 
     def _on_ball(self, k, obs):
@@ -1267,8 +1316,8 @@ class MyTeam(TeamController):
                 bxo = bx - ox
                 byo = by - oy
                 db = sqrt(bxo * bxo + byo * byo) or 1.0
-                mx = ox + gx_ / dg * P['mk_g'] + bxo / db * P['mk_b']
-                my = oy + gy_ / dg * P['mk_g'] + byo / db * P['mk_b']
+                mx = ox + gx_ / dg * _MKG + bxo / db * _MKB
+                my = oy + gy_ / dg * _MKG + byo / db * _MKB
                 marks.append((dg, (mx, my)))
             marks.sort()
             cover = (bx + gx / gd * 7.0, by + gy / gd * 7.0)
@@ -1291,9 +1340,9 @@ class MyTeam(TeamController):
                 if kk > ld - 4.0:
                     kk = max(2.5, ld - 4.0)
                 last = (-HW + lx_ / ld * kk, yl + ly_ / ld * kk)
-            near = [m for d_, m in marks if d_ < P['mk_zone']]
-            far = [m for d_, m in marks if d_ >= P['mk_zone']]
-            if gd > P['ball_far']:
+            near = [m for d_, m in marks if d_ < _MKZ]
+            far = [m for d_, m in marks if d_ >= _MKZ]
+            if gd > _BFAR:
                 targets = [last] + near + [cover] + far
             else:
                 # ball near our goal: hold the line from it to goal first,
@@ -1323,8 +1372,14 @@ class MyTeam(TeamController):
             if best is None:
                 break
             used.add(best)
-            tx = max(-HW + 2, min(HW - 2, tx))
-            ty = max(-HH + 2, min(HH - 2, ty))
+            if tx > HW - 2:
+                tx = HW - 2
+            if tx < -HW + 2:
+                tx = -HW + 2
+            if ty > HH - 2:
+                ty = HH - 2
+            if ty < -HH + 2:
+                ty = -HH + 2
             pl[best] = self._run_to(us[best], tx, ty)
         for i in free:
             if i not in used:
