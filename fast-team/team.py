@@ -1,10 +1,11 @@
-"""Athalia Mamba v130 (quick) - race-model football, cut for decision time.
+"""Athalia Mamba v131 (quick) - race-model football, cut for decision time.
 
 This is the quick build of v127: the plan for everyone off the ball is worked
 out in full only every 8th tick (every 3rd on a dead ball) and kept in
-between, with the man going for the ball re-aimed every tick in closed form;
-on the ball, passes to the two most forward team-mates, touches on in three
-directions, long balls in three and, with a man of theirs close, touches away
+between, with the man going for the ball re-aimed every tick in closed form
+(after a kick of ours, whoever gets to the ball first on its new path is the
+one sent); on the ball, a pass to the most forward team-mate, a touch on, long
+balls in three directions and, with a man of theirs close, touches away
 square and back are rolled 30 ticks ahead instead of the full ring, against a
 2 ms budget. What follows describes the full model it is cut from.
 
@@ -120,8 +121,8 @@ P = dict(px=0.03, pz=0.04, py=0.09, mw=0.12, tw=0.004, m0=1.0, m1=0.0, cpen=0.3,
          mk_g=1.8, mk_b=0.8, mk_zone=30.0, ball_far=30.0,
          fwd_dx=18.0, fwd_y=12.0, space=0, sp_step=6.0, sp_lane=0.5, sp_x=0.1,
          sq=2.0, sqx=15.0, sqd=2.5)
-P.update({'skip': 8, 'kdead': 3, 'npass': 2, 'shx': 30.0, 'istep': 1, 'tsp': (8.0,), 'tdirs': (0, -35, 35), 'pk': 0.5, 'pc': 5.0,
-          'esc': (90, -90, 135, -135), 'lng': (0, 30, -30)})
+P.update({'skip': 8, 'kdead': 3, 'npass': 1, 'shx': 30.0, 'istep': 1, 'tsp': (8.0,), 'tdirs': (0,), 'pk': 0.5, 'pc': 5.0,
+          'esc': (90, -90, 135, -135), 'lng': (0, 30, -30), 'rch': 1})
 LSAFE_X = P.get('lmax2', -6.0)
 ODEL = int(P.get('odel', 1))
 ORAD = P.get('orad', 0.3)
@@ -171,6 +172,7 @@ ICD = int(P.get('icd', 1))
 SKIP = int(P.get('skip', 10))
 NCAND = int(P.get('ncand', 2))
 KDEAD = int(P.get('kdead', 2))
+RCH = int(P.get('rch', 0))
 ESCR2 = P.get('escr', 6.0) ** 2
 EDIRS = tuple((cos(_a * 0.017453292519943295), sin(_a * 0.017453292519943295)) for _a in P.get('esc', ()))
 LDIRS = tuple((cos(_a * 0.017453292519943295), sin(_a * 0.017453292519943295)) for _a in P.get('lng', ()))
@@ -347,7 +349,7 @@ def _eta(px, py, bx, by, bvx, bvy):
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "130"
+    version = "131"
 
     def __init__(self):
         self.reset(0)
@@ -417,9 +419,38 @@ class MyTeam(TeamController):
         self.full_t = t
         pl = ta.players
         rep = dict(pl)
+        kk = -1
         for i, a in pl.items():
             if a.kick_direction is not None:
                 rep[i] = PlayerAction(movement=a.movement)
+                kk = i
+        if kk >= 0 and RCH:
+            # the plan was made for the ball before this kick: whoever of ours
+            # gets to it first on its new path is the one sent after it
+            a = pl[kk]
+            kdx, kdy = a.kick_direction
+            q = IMP * a.kick_power
+            bvx, bvy = ball.velocity
+            nvx = bvx + q * kdx
+            nvy = bvy + q * kdy
+            sp = sqrt(nvx * nvx + nvy * nvy)
+            if sp > BMAX:
+                nvx *= BMAX / sp
+                nvy *= BMAX / sp
+            traj = self._traj(bx, by, nvx, nvy)
+            us = self.us
+            nb = NT + 5
+            bi = -1
+            for i in (1, 2, 3, 4):
+                p = us[i]
+                if i == kk:
+                    p = (p[0], p[1], p[2], p[3], 5)
+                n = self._intercept(p, traj, False, nb)
+                if n < nb:
+                    nb = n
+                    bi = i
+            self.ch_i = bi
+            self.ch_def = False
         self.cache_pl = rep
         self.cache = ta
         return pl
