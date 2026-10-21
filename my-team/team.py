@@ -1,4 +1,4 @@
-"""Athalia Mamba v126 - race-model football.
+"""Athalia Mamba v127 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%, and the kicker's
@@ -19,8 +19,9 @@ forward the nearer the corner) and with the most time to
 spare, is the one played; a ball won in the attacking third earns extra credit
 for how open a first-time shot from there would be against a keeper on his
 line. A shot is taken only when no opponent, the keeper included, can reach
-the ball before it crosses the line; when we are behind, one that they could
-only reach by reacting on the very tick of the strike is taken too.
+the ball before it crosses the line; when we are behind, or level in the last
+quarter, one that they could only reach by reacting on the very tick of the
+strike is taken too.
 
 Off the ball: the player who can reach a loose ball first, counting from when
 his kick cooldown ends, goes to meet it, so a dribbler runs alongside his ball
@@ -282,7 +283,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "126"
+    version = "127"
 
     def __init__(self):
         self.reset(0)
@@ -1069,9 +1070,9 @@ class MyTeam(TeamController):
                 aims = GYS + WYS + tuple((a + b) * 0.5 for a, b in zip(ys, ys[1:]) if b - a > 0.8)
                 ths = [(q[0], q[1], q[2], q[3], 0, [q[0] + q[2] * c for c in CTS], [q[1] + q[3] * c for c in CTS]) for q in self.th]
                 tts = (RT2S, LT2S)
-            elif sc[0] < sc[1]:
-                # behind: a shot they would only stop by moving on the very
-                # tick of the strike is worth taking
+            elif sc[0] < sc[1] or (sc[0] == sc[1] and obs.time_remaining < 0.25):
+                # behind, or level in the last quarter: a shot they would only
+                # stop by moving on the very tick of the strike is worth taking
                 ths = [(q[0], q[1], q[2], q[3], 0, [q[0] + q[2] * c for c in CTS], [q[1] + q[3] * c for c in CTS]) for q in self.th]
                 tts = (RT2S, LT2S)
             else:
