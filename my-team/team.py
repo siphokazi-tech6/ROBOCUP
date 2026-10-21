@@ -1,4 +1,4 @@
-"""Athalia Mamba v118 - race-model football.
+"""Athalia Mamba v119 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%, and the kicker's
@@ -26,7 +26,8 @@ his kick cooldown ends, goes to meet it, so a dribbler runs alongside his ball
 instead of into it. When they have it, the player who can get goal-side of the
 ball fastest presses it. One man always stays between the ball and our goal
 (near our goal he and the cover take the lanes to the two corners, the keeper
-the middle),
+the middle; with the ball wide in our third the cover holds the spot a ball
+cut back across the box would be played to),
 and while we have it deep in our half the forwards wait short of halfway.
 Opponents near our goal are marked, in order of danger, goal-side of where
 they will be in about a second, so a runner into the box is not left behind.
@@ -257,7 +258,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "118"
+    version = "119"
 
     def __init__(self):
         self.reset(0)
@@ -1273,6 +1274,11 @@ class MyTeam(TeamController):
                 # ball near our goal: hold the line from it to goal first,
                 # mark with whoever is left
                 targets = [last, cover] + near + far
+            if bx < -25.0 and (by if by > 0 else -by) > 10.0:
+                # ball wide in our third: the ball back across the box is what
+                # scores, so the cover holds the spot it is played to
+                cz = (-38.0, by * 0.4)
+                targets = [cz if t is cover else t for t in targets]
             while len(targets) < 4:
                 targets.append((-35.0, 0.0))
         # assign in priority order: each target takes the nearest free player
