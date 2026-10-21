@@ -1,7 +1,7 @@
-"""Athalia Mamba v128 (quick) - race-model football, cut for decision time.
+"""Athalia Mamba v129 (quick) - race-model football, cut for decision time.
 
 This is the quick build of v127: the plan for everyone off the ball is worked
-out in full only every 14th tick (every 3rd on a dead ball) and kept in
+out in full only every 8th tick (every 3rd on a dead ball) and kept in
 between, with the man going for the ball re-aimed every tick in closed form;
 on the ball, passes to the two most forward team-mates and touches on in
 three directions are rolled 30 ticks ahead instead of the full ring, against
@@ -119,7 +119,7 @@ P = dict(px=0.03, pz=0.04, py=0.09, mw=0.12, tw=0.004, m0=1.0, m1=0.0, cpen=0.3,
          mk_g=1.8, mk_b=0.8, mk_zone=30.0, ball_far=30.0,
          fwd_dx=18.0, fwd_y=12.0, space=0, sp_step=6.0, sp_lane=0.5, sp_x=0.1,
          sq=2.0, sqx=15.0, sqd=2.5)
-P.update({'skip': 14, 'kdead': 3, 'npass': 2, 'shx': 30.0, 'istep': 1, 'tsp': (8.0,), 'tdirs': (0, -35, 35), 'pk': 0.5, 'pc': 5.0})
+P.update({'skip': 8, 'kdead': 3, 'npass': 2, 'shx': 30.0, 'istep': 1, 'tsp': (8.0,), 'tdirs': (0, -35, 35), 'pk': 0.5, 'pc': 5.0})
 LSAFE_X = P.get('lmax2', -6.0)
 ODEL = int(P.get('odel', 1))
 ORAD = P.get('orad', 0.3)
@@ -341,7 +341,7 @@ def _eta(px, py, bx, by, bvx, bvy):
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "128"
+    version = "129"
 
     def __init__(self):
         self.reset(0)
