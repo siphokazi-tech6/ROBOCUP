@@ -1,4 +1,4 @@
-"""Athalia Mamba v119 - race-model football.
+"""Athalia Mamba v120 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%, and the kicker's
@@ -24,7 +24,8 @@ the ball before it crosses the line.
 Off the ball: the player who can reach a loose ball first, counting from when
 his kick cooldown ends, goes to meet it, so a dribbler runs alongside his ball
 instead of into it. When they have it, the player who can get goal-side of the
-ball fastest presses it. One man always stays between the ball and our goal
+ball fastest presses it, unless the ball is loose near our goal and they reach
+it at most two ticks before us: then our fastest man goes for it. One man always stays between the ball and our goal
 (near our goal he and the cover take the lanes to the two corners, the keeper
 the middle; with the ball wide in our third the cover holds the spot a ball
 cut back across the box would be played to),
@@ -33,8 +34,12 @@ Opponents near our goal are marked, in order of danger, goal-side of where
 they will be in about a second, so a runner into the box is not left behind.
 The keeper narrows the angle on the line from the ball to the middle of the
 goal and goes for the earliest point of any shot he can reach. On their
-kickoff we stand in the passing lanes to their forwards and steer round the
-centre circle, so we never give away a foul.
+kickoff we stand in a compact block, one man on the taker's line to our goal
+just outside the centre circle, two on the diagonals and one deep, matched to
+the spots so the last of them arrives soonest, and steer round the centre
+circle, so we never give away a foul. Our own kickoff is taken by whoever
+starts nearest the ball, so it goes before the restart expires, and the man
+whose job he takes holds midfield on that side.
 
 The search is a fixed set of candidates, so the team decides the same way on
 any machine. A 12 ms clock, started when the decision starts and checked
@@ -154,7 +159,16 @@ SQ = P['sq']
 SQX = P['sqx']
 KQ = 1
 KOE = 62       # ticks before an untaken restart of theirs counts as expired
-KON = 0
+KON = 1        # our kickoff: taken by whoever starts nearest the ball ...
+KONX = -8.0    # ... and the man whose job he takes holds midfield on his side
+KONY = 14.0
+KOB_M = 0.3    # their kickoff: the block stands this far outside the circle
+KOS_X = -16.0  # ... the two men on the diagonals
+KOS_Y = 9.0
+KOS_D = -30.0  # ... the deep man
+CT_X = -25.0   # a loose ball they win by two ticks or less, nearer our goal than this: go for it
+_PERMS = [(a, b, c, d) for a in range(1, 5) for b in range(1, 5) for c in range(1, 5) for d in range(1, 5)
+          if len({a, b, c, d}) == 4]
 KO_EL = 50
 PUSH = 0
 BEHIND = P.get('behind', 0.0)
@@ -258,7 +272,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "119"
+    version = "120"
 
     def __init__(self):
         self.reset(0)
@@ -386,7 +400,12 @@ class MyTeam(TeamController):
         winning = t_us <= t_th
         self.attack = winning or (ball.controlling_team == 0 and t_us <= t_th + 2)
         self.defending = not winning
-        if not winning and chaser != 0:
+        contest = False
+        if not winning and chaser != 0 and t_th > 0 and t_us <= t_th + 2:
+            cn = t_us if t_us < NT else NT
+            if traj[cn][0] < CT_X:
+                contest = True
+        if not winning and chaser != 0 and not contest:
             chaser = self._presser(bx, by, bvx, bvy, ui)
 
         done = set()
@@ -408,7 +427,7 @@ class MyTeam(TeamController):
 
         # ---- chaser
         if chaser not in done:
-            if self.defending and chaser != 0:
+            if self.defending and chaser != 0 and not contest:
                 tx, ty = self._press_point(us[chaser], bx, by, bvx, bvy)
             else:
                 n = ui[chaser]
@@ -1352,49 +1371,44 @@ class MyTeam(TeamController):
         th = self.th
         us = self.us
         RC = KO_R
-        # their outfield players, most dangerous (nearest our goal) first
-        outs = sorted(range(5), key=lambda j: th[j][0] + 0.2 * abs(th[j][1]))
-        outs = [j for j in outs if th[j][0] < 40.0]
-        targets = []
-        for j in outs[:3]:
-            ox, oy = th[j][0], th[j][1]
-            d = sqrt(ox * ox + oy * oy) or 1.0
-            if d > RC + 3.0:
-                # stand in the lane from the ball to him, a little short of him
-                k = d - 2.5
-                if k < RC:
-                    k = RC
-                targets.append((ox / d * k, oy / d * k))
-            else:
-                # close to the circle: goal-side of him, outside the circle
-                tx, ty = ox - 2.0, oy
-                dd = sqrt(tx * tx + ty * ty) or 1.0
-                if dd < RC:
-                    tx, ty = tx / dd * RC, ty / dd * RC
-                targets.append((tx, ty))
-        targets.insert(0, (-30.0, 0.0))
+        # a compact block: one man on the taker's line to our goal just
+        # outside the circle, two on the diagonals, one deep; the men are
+        # matched to the spots so that the last of them arrives soonest
+        kj = min(range(5), key=lambda j: th[j][0] * th[j][0] + th[j][1] * th[j][1])
+        ox, oy = th[kj][0], th[kj][1]
+        if ox * ox + oy * oy < (RC + 3.0) ** 2:
+            ux, uy = -HW - ox, -oy
+            un = sqrt(ux * ux + uy * uy) or 1.0
+            ux /= un
+            uy /= un
+            ou = ox * ux + oy * uy
+            q = ou * ou - (ox * ox + oy * oy) + (RC + KOB_M) ** 2
+            k = -ou + sqrt(q if q > 0.0 else 0.0)
+            blk = (ox + ux * k, oy + uy * k)
+        else:
+            blk = (-(RC + KOB_M), 0.0)
+        tg = (blk, (KOS_X, KOS_Y), (KOS_X, -KOS_Y), (KOS_D, 0.0))
+        dm = [[sqrt((tx - us[i][0]) ** 2 + (ty - us[i][1]) ** 2) for tx, ty in tg] for i in range(5)]
+        best = None
+        bk = None
+        for pm in _PERMS:
+            a0 = dm[pm[0]][0]
+            a1 = dm[pm[1]][1]
+            a2 = dm[pm[2]][2]
+            a3 = dm[pm[3]][3]
+            m = a0 if a0 > a1 else a1
+            if a2 > m:
+                m = a2
+            if a3 > m:
+                m = a3
+            key = m + 0.01 * (a0 + a1 + a2 + a3)
+            if bk is None or key < bk:
+                bk = key
+                best = pm
         pl[0] = self._run_to(us[0], -47.5, 0.0)
-        free = [1, 2, 3, 4]
-        used = set()
-        for tx, ty in targets:
-            best = None
-            bd = 1e18
-            for i in free:
-                if i in used:
-                    continue
-                dx = tx - us[i][0]
-                dy = ty - us[i][1]
-                d2 = dx * dx + dy * dy
-                if d2 < bd:
-                    bd = d2
-                    best = i
-            if best is None:
-                break
-            used.add(best)
-            pl[best] = self._safe_run(us[best], tx, ty)
-        for i in free:
-            if i not in used:
-                pl[i] = self._safe_run(us[i], -20.0, 0.0)
+        for k in range(4):
+            i = best[k]
+            pl[i] = self._safe_run(us[i], tg[k][0], tg[k][1])
         return ta
 
     def _safe_run(self, p, tx, ty):
@@ -1467,6 +1481,9 @@ class MyTeam(TeamController):
             if r == 2:
                 # walk to the ball, take it near the end
                 tx, ty = -1.5, 0.0
+            elif i == 2 and kk >= 3:
+                # too far back to reach the taker's forward spot in time
+                tx, ty = KONX, KONY if ty > 0.0 else -KONY
             pl[i] = self._run_to(self.us[i], tx, ty)
         if el >= KO_EL:
             # strike from the spot using the standard evaluation
