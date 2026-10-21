@@ -1,4 +1,4 @@
-"""Athalia Mamba v127 - race-model football.
+"""Athalia Mamba v132 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%, and the kicker's
@@ -35,7 +35,9 @@ and while we have it deep in our half the forwards wait short of halfway.
 Opponents near our goal are marked, in order of danger, goal-side of where
 they will be in about a second, so a runner into the box is not left behind.
 The keeper narrows the angle on the line from the ball to the middle of the
-goal and goes for the earliest point of any shot he can reach. On their
+goal and goes for the earliest point of any shot he can reach; with the ball
+central 8 to 24 units out he comes most of the way to it, where a full shot
+at either corner is still in his reach. On their
 kickoff we stand in a compact block, one man on the taker's line to our goal
 just outside the centre circle, two on the diagonals and one deep, matched to
 the spots so the last of them arrives soonest, and steer round the centre
@@ -283,7 +285,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "127"
+    version = "132"
 
     def __init__(self):
         self.reset(0)
@@ -1229,6 +1231,14 @@ class MyTeam(TeamController):
             depth = 1.5
         elif depth > 11.0:
             depth = 11.0
+        if 8.0 <= d <= 24.0 and (dy if dy > 0.0 else -dy) < 0.45 * dx:
+            # a full shot from here beats a keeper standing off: come out
+            # to where the whole mouth is in reach
+            fd = 0.55 * d + 2.0
+            if fd > 15.0:
+                fd = 15.0
+            if fd > depth:
+                depth = fd
         tx = gx + dx / d * depth
         ty = dy / d * depth
         if ty > GH - 1.0:
