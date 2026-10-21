@@ -1,4 +1,4 @@
-"""Athalia Mamba v133 - race-model football.
+"""Athalia Mamba v134 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%, and the kicker's
@@ -37,8 +37,8 @@ they will be in about a second, so a runner into the box is not left behind.
 The keeper narrows the angle on the line from the ball to the middle of the
 goal and goes for the earliest point of any shot he can reach; with the ball
 central 8 to 24 units out he comes most of the way to it, where a full shot
-at either corner is still in his reach (faded in and out at the edges, so his
-spot never jumps as a dribbler comes into range). On their
+at either corner is still in his reach (eased in from the edges of that zone,
+so his spot never jumps as a dribbler comes into it). On their
 kickoff we stand in a compact block, one man on the taker's line to our goal
 just outside the centre circle, two on the diagonals and one deep, matched to
 the spots so the last of them arrives soonest, and steer round the centre
@@ -286,7 +286,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "133"
+    version = "134"
 
     def __init__(self):
         self.reset(0)
@@ -1232,25 +1232,24 @@ class MyTeam(TeamController):
             depth = 1.5
         elif depth > 11.0:
             depth = 11.0
-        if 5.0 < d < 28.0 and dx > 0.0:
-            # a full shot from here beats a keeper standing off: come out to
-            # where the whole mouth is in reach, faded in and out at the edges
-            # so his spot never jumps as the ball comes into range
+        if 8.0 < d < 24.0 and (dy if dy > 0.0 else -dy) < 0.45 * dx:
+            # a full shot from here beats a keeper standing off: come out
+            # to where the whole mouth is in reach, eased in from the zone's
+            # edges so his spot never jumps as the ball comes into it
             fd = 0.55 * d + 2.0
             if fd > 15.0:
                 fd = 15.0
             if fd > depth:
                 w = 1.0
-                if d > 24.0:
-                    w = (28.0 - d) * 0.25
-                elif d < 8.0:
-                    w = (d - 5.0) / 3.0
+                if d > 20.0:
+                    w = (24.0 - d) * 0.25
+                elif d < 11.0:
+                    w = (d - 8.0) / 3.0
                 ad = dy if dy > 0.0 else -dy
-                e = 0.45 * dx
+                e = 0.3 * dx
                 if ad > e:
-                    w *= 1.0 - (ad - e) / (0.15 * dx)
-                if w > 0.0:
-                    depth += (fd - depth) * w
+                    w *= (0.45 * dx - ad) / (0.15 * dx)
+                depth += (fd - depth) * w
         tx = gx + dx / d * depth
         ty = dy / d * depth
         if ty > GH - 1.0:
