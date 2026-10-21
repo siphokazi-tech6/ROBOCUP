@@ -1,4 +1,4 @@
-"""Athalia Mamba v134 - race-model football.
+"""Athalia Mamba v135 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%, and the kicker's
@@ -19,9 +19,8 @@ forward the nearer the corner) and with the most time to
 spare, is the one played; a ball won in the attacking third earns extra credit
 for how open a first-time shot from there would be against a keeper on his
 line. A shot is taken only when no opponent, the keeper included, can reach
-the ball before it crosses the line; when we are behind, or level in the last
-quarter, one that they could only reach by reacting on the very tick of the
-strike is taken too.
+the ball before it crosses the line; when we are behind, one that they could
+only reach by reacting on the very tick of the strike is taken too.
 
 Off the ball: the player who can reach a loose ball first, counting from when
 his kick cooldown ends, goes to meet it, so a dribbler runs alongside his ball
@@ -37,8 +36,7 @@ they will be in about a second, so a runner into the box is not left behind.
 The keeper narrows the angle on the line from the ball to the middle of the
 goal and goes for the earliest point of any shot he can reach; with the ball
 central 8 to 24 units out he comes most of the way to it, where a full shot
-at either corner is still in his reach (eased in from the edges of that zone,
-so his spot never jumps as a dribbler comes into it). On their
+at either corner is still in his reach. On their
 kickoff we stand in a compact block, one man on the taker's line to our goal
 just outside the centre circle, two on the diagonals and one deep, matched to
 the spots so the last of them arrives soonest, and steer round the centre
@@ -286,7 +284,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "134"
+    version = "135"
 
     def __init__(self):
         self.reset(0)
@@ -1073,9 +1071,9 @@ class MyTeam(TeamController):
                 aims = GYS + WYS + tuple((a + b) * 0.5 for a, b in zip(ys, ys[1:]) if b - a > 0.8)
                 ths = [(q[0], q[1], q[2], q[3], 0, [q[0] + q[2] * c for c in CTS], [q[1] + q[3] * c for c in CTS]) for q in self.th]
                 tts = (RT2S, LT2S)
-            elif sc[0] < sc[1] or (sc[0] == sc[1] and obs.time_remaining < 0.25):
-                # behind, or level in the last quarter: a shot they would only
-                # stop by moving on the very tick of the strike is worth taking
+            elif sc[0] < sc[1]:
+                # behind: a shot they would only stop by moving on the very
+                # tick of the strike is worth taking
                 ths = [(q[0], q[1], q[2], q[3], 0, [q[0] + q[2] * c for c in CTS], [q[1] + q[3] * c for c in CTS]) for q in self.th]
                 tts = (RT2S, LT2S)
             else:
@@ -1232,24 +1230,14 @@ class MyTeam(TeamController):
             depth = 1.5
         elif depth > 11.0:
             depth = 11.0
-        if 8.0 < d < 24.0 and (dy if dy > 0.0 else -dy) < 0.45 * dx:
+        if 8.0 <= d <= 24.0 and (dy if dy > 0.0 else -dy) < 0.45 * dx:
             # a full shot from here beats a keeper standing off: come out
-            # to where the whole mouth is in reach, eased in from the zone's
-            # edges so his spot never jumps as the ball comes into it
+            # to where the whole mouth is in reach
             fd = 0.55 * d + 2.0
             if fd > 15.0:
                 fd = 15.0
             if fd > depth:
-                w = 1.0
-                if d > 20.0:
-                    w = (24.0 - d) * 0.25
-                elif d < 11.0:
-                    w = (d - 8.0) / 3.0
-                ad = dy if dy > 0.0 else -dy
-                e = 0.3 * dx
-                if ad > e:
-                    w *= (0.45 * dx - ad) / (0.15 * dx)
-                depth += (fd - depth) * w
+                depth = fd
         tx = gx + dx / d * depth
         ty = dy / d * depth
         if ty > GH - 1.0:
