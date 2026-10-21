@@ -1,4 +1,4 @@
-"""Athalia Mamba v124 - race-model football.
+"""Athalia Mamba v125 - race-model football.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%, and the kicker's
@@ -25,7 +25,8 @@ only reach by reacting on the very tick of the strike is taken too.
 Off the ball: the player who can reach a loose ball first, counting from when
 his kick cooldown ends, goes to meet it, so a dribbler runs alongside his ball
 instead of into it. When they have it, the player who can get goal-side of the
-ball fastest presses it, unless the ball is loose near our goal and they reach
+ball fastest presses it (aiming where it will be, up to 1.2 s ahead, so a
+man running with it is met in front of him), unless the ball is loose near our goal and they reach
 it at most two ticks before us: then our fastest man goes for it. One man always stays between the ball and our goal
 (near our goal he and the cover take the lanes to the two corners, the keeper
 the middle; with the ball wide in our third the cover holds the spot a ball
@@ -282,7 +283,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "124"
+    version = "125"
 
     def __init__(self):
         self.reset(0)
@@ -614,9 +615,11 @@ class MyTeam(TeamController):
         dx = bx - px
         dy = by - py
         d = sqrt(dx * dx + dy * dy)
-        tau = d / 14.0
-        if tau > 0.6:
-            tau = 0.6
+        # aim where the ball will be, further ahead the further off he is,
+        # so a man running with it at full speed is met in front, not chased
+        tau = d / 10.0
+        if tau > 1.2:
+            tau = 1.2
         qx = bx + bvx * tau
         qy = by + bvy * tau
         gx = -HW - qx
