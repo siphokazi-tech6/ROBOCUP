@@ -1,10 +1,6 @@
-"""Athalia Mamba v141 - race-model football, v140's play cut for decision time.
-
-As v140 (the search on the ball cut short at 2 ms, its directions taken every
-30 degrees first), with the plan for everyone off the ball worked out in full
-only every third tick (every second on a dead ball) and kept in between: the
-man going for the ball is re-aimed every tick in closed form, and after a kick
-of ours whoever gets to the ball first on its new path is the one sent.
+"""Athalia Mamba v142 - race-model football, v132's play with the search on the
+ball cut short at 1.5 ms a decision, for decision time, and its directions taken
+every 30 degrees first so a short search still looks all round.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%, and the kicker's
@@ -119,7 +115,6 @@ P = dict(px=0.03, pz=0.04, py=0.09, mw=0.12, tw=0.004, m0=1.0, m1=0.0, cpen=0.3,
          mk_g=1.8, mk_b=0.8, mk_zone=30.0, ball_far=30.0,
          fwd_dx=18.0, fwd_y=12.0, space=0, sp_step=6.0, sp_lane=0.5, sp_x=0.1,
          sq=2.0, sqx=15.0, sqd=2.5)
-P.update({'skip': 3, 'kdead': 2, 'shx': 40.0, 'istep': 1, 'ncand': 5, 'gys': (-6.2, -4.6, -2.3, 0.0, 2.3, 4.6, 6.2), 'rch': 1})
 LSAFE_X = P.get('lmax2', -6.0)
 ODEL = int(P.get('odel', 1))
 ORAD = P.get('orad', 0.3)
@@ -166,12 +161,7 @@ RS_W = P.get('rs_w', 3.0)
 RS_DIST = P.get('rs_dist', 30.0)
 CH_T = P.get('ch_t', 0.5)
 ICD = int(P.get('icd', 1))
-SKIP = int(P.get('skip', 10))
-NCAND = int(P.get('ncand', 2))
-KDEAD = int(P.get('kdead', 2))
-RCH = int(P.get('rch', 0))
-NPASS = int(P.get('npass', 2))
-SHX = P.get('shx', 30.0)
+SKIP = int(P.get('skip', 1))
 ISTEP = int(P.get('istep', 1))
 KRC = KR * KR
 PRUNE = int(P.get('prune', 1))
@@ -197,7 +187,7 @@ _PERMS = [(a, b, c, d) for a in range(1, 5) for b in range(1, 5) for c in range(
 KO_EL = 50
 PUSH = 0
 BEHIND = P.get('behind', 0.0)
-GYS = tuple(P.get('gys', (-5.6, 0.0, 5.6)))
+GYS = tuple(P.get('gys', (-6.2, -4.6, -2.3, 0.0, 2.3, 4.6, 6.2)))
 # against a wall of men on their goal line: aim right into the corners too (a
 # goal counts with the ball's centre inside |y| < 7) and through every gap
 WYS = (-6.75, 6.75)
@@ -267,7 +257,7 @@ def _dirs(step):
 
 # most forward first, so a cut-short search has looked at the useful ones
 DIRS = sorted(_dirs(int(P.get('dstep', 10))), key=lambda d: -d[0])
-BUDGET = P.get('budget', 0.002)
+BUDGET = P.get('budget', 0.0015)
 
 
 def _cands(spec):
@@ -304,58 +294,13 @@ ALLC = _cf(ALLC)
 CANDS = _cf(CANDS)
 DEEPX = -5.0
 AX = 38.0
-TDIRS = tuple((cos(_a * 0.017453292519943295), sin(_a * 0.017453292519943295)) for _a in P.get('tdirs', (0, -30, 30, -60, 60)))
-CLEAR = tuple((cos(_a * 0.017453292519943295), sin(_a * 0.017453292519943295)) for _a in (20, 50, 80))
 KA = 1
 KA_ADD = 0
 
 
-# ---- closed form, for the ticks the plan is kept
-GEO = [0.0]
-for _n in range(1, 81):
-    GEO.append(GEO[-1] + DT * FR ** (_n - 1))
-STEP = 0.42
-_ND = 72
-RUN = [PlayerAction(movement=(cos(i * 6.283185307179586 / _ND), sin(i * 6.283185307179586 / _ND))) for i in range(_ND)]
-_KD = _ND / 6.283185307179586
-TSP = tuple(P.get('tsp', (8.0,)))
-PK = P.get('pk', 0.5)
-PC = P.get('pc', 5.0)
-
-
-def _qrun(px, py, tx, ty):
-    """Run to a spot, on the nearest of 72 fixed directions."""
-    dx = tx - px
-    dy = ty - py
-    if dx * dx + dy * dy < 0.36:
-        return HOLD
-    return RUN[int(atan2(dy, dx) * _KD + 0.5) % _ND]
-
-
-def _eta(px, py, bx, by, bvx, bvy):
-    """Where a man meets the ball, in closed form."""
-    dx = bx - px
-    dy = by - py
-    n = int(sqrt(dx * dx + dy * dy) / STEP)
-    if n > 80:
-        n = 80
-    g = GEO[n]
-    tx = bx + bvx * g
-    ty = by + bvy * g
-    if tx > 49.0:
-        tx = 49.0
-    elif tx < -49.0:
-        tx = -49.0
-    if ty > 29.0:
-        ty = 29.0
-    elif ty < -29.0:
-        ty = -29.0
-    return tx, ty
-
-
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "141"
+    version = "142"
 
     def __init__(self):
         self.reset(0)
@@ -369,9 +314,6 @@ class MyTeam(TeamController):
         self.tk = 0
         self.full_t = -99
         self.cache = None
-        self.cache_pl = None
-        self.ch_i = -1
-        self.ch_def = False
         self.wall = False
         self.gm = 0.3
 
@@ -380,86 +322,40 @@ class MyTeam(TeamController):
 
     # ------------------------------------------------------------------ act
     def act(self, obs):
+        self.t_act = _clock()
         t = self.tk + 1
         self.tk = t
-        ball = obs.ball
-        bx, by = ball.position
-        mine = obs.my_players
-        dead = not (bx or by)
-        for p in mine:
-            if p.kick_cooldown_ticks:
-                continue
-            x, y = p.position
-            dx = bx - x
-            dy = by - y
-            if dx * dx + dy * dy <= KRC:
-                break
-        else:
-            if t - self.full_t < (KDEAD if dead else SKIP) and self.cache is not None:
-                if dead:
-                    return self.cache_pl
-                if True:
-                    # keep the plan; only the man going for the ball is
-                    # re-aimed at where it is going
-                    ch = self.ch_i
-                    if ch < 0:
-                        return self.cache_pl
-                    bvx, bvy = ball.velocity
-                    x, y = mine[ch].position
-                    tx, ty = _eta(x, y, bx, by, bvx, bvy)
-                    if self.ch_def:
-                        gx = -HW - tx
-                        gy = -ty
-                        g = sqrt(gx * gx + gy * gy) or 1.0
-                        tx += gx / g * 2.4
-                        ty += gy / g * 2.4
-                    pl = self.cache_pl
-                    pl[ch] = _qrun(x, y, tx, ty)
-                    return pl
-        self.t_act = _clock()
-        self.ch_i = -1
+        ca = self.cache
+        if ca is not None and t - self.full_t < SKIP and not obs.events:
+            # nothing has been kicked since the last plan: keep it, unless one
+            # of ours can play the ball right now
+            ball = obs.ball
+            bx, by = ball.position
+            if bx or by:
+                for p in obs.my_players:
+                    if not p.kick_cooldown_ticks:
+                        x, y = p.position
+                        dx = bx - x
+                        dy = by - y
+                        if dx * dx + dy * dy <= KRC:
+                            break
+                else:
+                    return ca
         try:
             ta = self._act(obs)
         except Exception:
-            ta = TeamAction({0: HOLD, 1: HOLD, 2: HOLD, 3: HOLD, 4: HOLD})
+            ta = TeamAction({i: HOLD for i in range(5)})
         self.full_t = t
+        # the plan to repeat, with any kick taken out of it
         pl = ta.players
-        rep = dict(pl)
-        kk = -1
+        rep = None
         for i, a in pl.items():
             if a.kick_direction is not None:
+                if rep is None:
+                    rep = dict(pl)
                 rep[i] = PlayerAction(movement=a.movement)
-                kk = i
-        if kk >= 0 and RCH:
-            # the plan was made for the ball before this kick: whoever of ours
-            # gets to it first on its new path is the one sent after it
-            a = pl[kk]
-            kdx, kdy = a.kick_direction
-            q = IMP * a.kick_power
-            bvx, bvy = ball.velocity
-            nvx = bvx + q * kdx
-            nvy = bvy + q * kdy
-            sp = sqrt(nvx * nvx + nvy * nvy)
-            if sp > BMAX:
-                nvx *= BMAX / sp
-                nvy *= BMAX / sp
-            traj = self._traj(bx, by, nvx, nvy)
-            us = self.us
-            nb = NT + 5
-            bi = -1
-            for i in (1, 2, 3, 4):
-                p = us[i]
-                if i == kk:
-                    p = (p[0], p[1], p[2], p[3], 5)
-                n = self._intercept(p, traj, False, nb)
-                if n < nb:
-                    nb = n
-                    bi = i
-            self.ch_i = bi
-            self.ch_def = False
-        self.cache_pl = rep
-        self.cache = ta
-        return pl
+        self.cache = ta if rep is None else TeamAction(rep)
+        return ta
 
     def _act(self, obs):
         ta = TeamAction()
@@ -514,25 +410,19 @@ class MyTeam(TeamController):
         # ---- intercept ticks for everyone
         # only the first to each ball matters: a player is searched no
         # further than the best tick found so far
-        # only the two of each side nearest where the ball is going are
-        # searched; the rest are taken to be out of it
-        g8 = GEO[8]
-        fx_ = bx + bvx * g8
-        fy_ = by + bvy * g8
-        ui = [NT + 5] * 5
+        ui = [0, 0, 0, 0, 0]
         t_us = NT + 5
-        for i in sorted((1, 2, 3, 4), key=lambda i: (us[i][0] - fx_) ** 2 + (us[i][1] - fy_) ** 2)[:NCAND]:
+        for i in range(1, 5):
             n = self._intercept(us[i], traj, False, t_us)
             ui[i] = n
             if n < t_us:
                 t_us = n
-        if bx < -15.0:
-            ui[0] = self._intercept(us[0], traj, True, t_us - 2)
-        ti = [NT + 5] * 5
+        ui[0] = self._intercept(us[0], traj, True, t_us - 2)
+        ti = []
         t_th = NT + 5
-        for j in sorted(range(5), key=lambda j: (th[j][0] - fx_) ** 2 + (th[j][1] - fy_) ** 2)[:NCAND]:
-            n = self._intercept(th[j], traj, False, t_th)
-            ti[j] = n
+        for p in th:
+            n = self._intercept(p, traj, False, t_th)
+            ti.append(n)
             if n < t_th:
                 t_th = n
         self.t_th_ = t_th
@@ -591,9 +481,6 @@ class MyTeam(TeamController):
                             ty -= dvy / dv * BEHIND
             pl[chaser] = self._run_to(us[chaser], tx, ty, ball_target=True)
             done.add(chaser)
-            if chaser != 0:
-                self.ch_i = chaser
-                self.ch_def = self.defending and not contest
 
         # ---- keeper
         if 0 not in done:
@@ -1182,7 +1069,7 @@ class MyTeam(TeamController):
         base = self._posval(bx, by)
         # shots
         gdx = HW - bx
-        if gdx < SHX:
+        if gdx < 40.0:
             aims = GYS
             if self.wall:
                 # where each man ahead of the ball stands, seen from the ball
