@@ -1,5 +1,6 @@
-"""Athalia Mamba v139 - race-model football, v132's play with the search on the
-ball cut short at 2 ms a decision, for decision time.
+"""Athalia Mamba v140 - race-model football, v132's play with the search on the
+ball cut short at 2 ms a decision, for decision time, and its directions taken
+every 30 degrees first so a short search still looks all round.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%, and the kicker's
@@ -278,6 +279,19 @@ else:
 ALLC = CANDS
 CANDS = CANDS[:int(P.get('ndirs', 16))]
 CREST = ALLC[len(CANDS):]
+# the directions every 30 degrees first, then the ones between: a search cut
+# short by the budget has still looked all round, not just straight ahead
+CF = 30
+
+
+def _cf(cs):
+    def coarse(c):
+        return round(atan2(c[0][1], c[0][0]) * 57.29577951308232) % CF == 0
+    return [c for c in cs if coarse(c)] + [c for c in cs if not coarse(c)]
+
+
+ALLC = _cf(ALLC)
+CANDS = _cf(CANDS)
 DEEPX = -5.0
 AX = 38.0
 KA = 1
@@ -286,7 +300,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "139"
+    version = "140"
 
     def __init__(self):
         self.reset(0)
