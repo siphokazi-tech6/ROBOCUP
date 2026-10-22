@@ -1,6 +1,8 @@
-"""Athalia Mamba v142 - race-model football, v132's play with the search on the
+"""Athalia Mamba v143 - race-model football, v132's play with the search on the
 ball cut short at 1.5 ms a decision, for decision time, and its directions taken
-every 30 degrees first so a short search still looks all round.
+every 30 degrees first so a short search still looks all round. The ball's
+path is rolled out afresh only when it has been touched; otherwise last tick's
+path is carried one tick on.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%, and the kicker's
@@ -300,7 +302,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "142"
+    version = "143"
 
     def __init__(self):
         self.reset(0)
@@ -314,6 +316,8 @@ class MyTeam(TeamController):
         self.tk = 0
         self.full_t = -99
         self.cache = None
+        self.tc = None
+        self.tend = None
         self.wall = False
         self.gm = 0.3
 
@@ -404,8 +408,16 @@ class MyTeam(TeamController):
         self.ko_t0 = None
 
         # ---- ball trajectory
-        traj = self._traj(bx, by, bvx, bvy)
+        tc = self.tc
+        if tc is not None and -1e-5 < bx - tc[0] < 1e-5 and -1e-5 < by - tc[1] < 1e-5 \
+                and -1e-5 < bvx - tc[2] < 1e-5 and -1e-5 < bvy - tc[3] < 1e-5:
+            # untouched since last tick: the same path, one tick on
+            self.tspd = sqrt(bvx * bvx + bvy * bvy)
+            traj = self._traj_on()
+        else:
+            traj = self._traj(bx, by, bvx, bvy)
         self.traj = traj
+        self.tc = traj[1] + (bvx * FR, bvy * FR)
 
         # ---- intercept ticks for everyone
         # only the first to each ball matters: a player is searched no
@@ -511,11 +523,13 @@ class MyTeam(TeamController):
                 vx *= fr
                 vy *= fr
                 app((x, y))
+            self.tend = (x, y, vx, vy)
             return out
         for n in range(NT + 1):
             if vx == 0.0 and vy == 0.0:
                 # at rest (dead ball, or stopped in a goal): it stays put
                 out.extend([(x, y)] * (NT + 1 - n))
+                self.tend = (x, y, 0.0, 0.0)
                 return out
             x += vx * dt
             y += vy * dt
@@ -542,6 +556,41 @@ class MyTeam(TeamController):
             vx *= fr
             vy *= fr
             app((x, y))
+        self.tend = (x, y, vx, vy)
+        return out
+
+    def _traj_on(self):
+        """Last tick's path one tick on: the first point dropped, one more
+        step of the same roll (and bounce) added at the end."""
+        x, y, vx, vy = self.tend
+        out = self.traj[1:]
+        if vx or vy:
+            x += vx * DT
+            y += vy * DT
+            if y > BYM:
+                y = 2 * BYM - y
+                vy = -0.75 * vy
+            elif y < -BYM:
+                y = -2 * BYM - y
+                vy = -0.75 * vy
+            if x > BXM:
+                if -GH < y < GH:
+                    x = BXM
+                    vx = vy = 0.0
+                else:
+                    x = 2 * BXM - x
+                    vx = -0.75 * vx
+            elif x < -BXM:
+                if -GH < y < GH:
+                    x = -BXM
+                    vx = vy = 0.0
+                else:
+                    x = -2 * BXM - x
+                    vx = -0.75 * vx
+            vx *= FR
+            vy *= FR
+        out.append((x, y))
+        self.tend = (x, y, vx, vy)
         return out
 
     def _intercept(self, p, traj, keeper, nmax=NT + 5):
