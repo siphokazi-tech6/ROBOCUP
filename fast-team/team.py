@@ -1,8 +1,9 @@
-"""Athalia Mamba v143 - race-model football, v132's play with the search on the
+"""Athalia Mamba v145 - race-model football, v132's play with the search on the
 ball cut short at 1.5 ms a decision, for decision time, and its directions taken
 every 30 degrees first so a short search still looks all round. The ball's
 path is rolled out afresh only when it has been touched; otherwise last tick's
-path is carried one tick on.
+path is carried one tick on. On a tick with no kick and none of ours able to
+play the ball, last tick's plan is kept.
 
 Every kick the man on the ball could make is rolled forward under the engine's
 own ball physics (friction 0.985 a tick, walls returning 75%, and the kicker's
@@ -163,7 +164,7 @@ RS_W = P.get('rs_w', 3.0)
 RS_DIST = P.get('rs_dist', 30.0)
 CH_T = P.get('ch_t', 0.5)
 ICD = int(P.get('icd', 1))
-SKIP = int(P.get('skip', 1))
+SKIP = int(P.get('skip', 2))
 ISTEP = int(P.get('istep', 1))
 KRC = KR * KR
 PRUNE = int(P.get('prune', 1))
@@ -302,7 +303,7 @@ KA_ADD = 0
 
 class MyTeam(TeamController):
     name = "Athalia_Mamba"
-    version = "143"
+    version = "145"
 
     def __init__(self):
         self.reset(0)
